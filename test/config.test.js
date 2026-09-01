@@ -56,3 +56,22 @@ test('rejects everything when the allowlist is empty', () => {
 test('rejects a missing sender', () => {
   assert.strictEqual(app.isAllowedSender(null, ['bookings@example.com']), false);
 });
+
+test('a decoy address in a quoted display name does not win', () => {
+  assert.strictEqual(
+    app.extractEmailAddress('"Trusted <bookings@example.com>" <attacker@evil.com>'),
+    'attacker@evil.com');
+});
+
+test('the last angle-addr wins when several are present', () => {
+  assert.strictEqual(
+    app.extractEmailAddress('Real Name <bookings@example.com> <attacker@evil.com>'),
+    'attacker@evil.com');
+});
+
+test('a decoy display name does not pass the allowlist', () => {
+  assert.strictEqual(
+    app.isAllowedSender('"Trusted <bookings@example.com>" <attacker@evil.com>',
+      ['bookings@example.com']),
+    false);
+});

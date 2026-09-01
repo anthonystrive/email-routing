@@ -29,11 +29,26 @@ function getAllowlist() {
     .filter(function (entry) { return entry.length > 0; });
 }
 
-/** 'Tops Ortho <bookings@example.com>' -> 'bookings@example.com' */
+/**
+ * 'Tops Ortho <bookings@example.com>' -> 'bookings@example.com'
+ *
+ * Security-critical. RFC 5322 permits a quoted-string display name to
+ * contain '<', '>' and '@', so a sender can plant a decoy address ahead of
+ * their real one: `"Trusted <ok@example.com>" <attacker@evil.com>`. Quoted
+ * segments are therefore stripped first, and the LAST angle-addr wins —
+ * that is where the real address sits in a `display-name angle-addr`
+ * mailbox. Anything that does not then look like a single address yields
+ * '' so the caller fails closed.
+ */
 function extractEmailAddress(from) {
   if (!from) return '';
-  var match = /<([^>]+)>/.exec(String(from));
-  return (match ? match[1] : String(from)).trim().toLowerCase();
+  var text = String(from).replace(/"(?:[^"\\]|\\.)*"/g, '');
+  var groups = text.match(/<([^<>]+)>/g);
+  var address = groups && groups.length
+    ? groups[groups.length - 1].slice(1, -1)
+    : text;
+  address = address.trim().toLowerCase();
+  return /^[^\s<>@]+@[^\s<>@]+$/.test(address) ? address : '';
 }
 
 /**
