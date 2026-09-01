@@ -61,6 +61,7 @@ sender ──email──> Gmail mailbox
                         │
                    main.gs
                     ├─ gmail.gs    find unprocessed mail with a PDF
+                    ├─ dedupe.gs   per-message record of what is done
                     ├─ pdf.gs      PDF blob → plain text (via Drive)
                     ├─ extract.gs  text → typed object (rule table)
                     ├─ validate.gs report which fields are missing
@@ -82,9 +83,21 @@ orchestration only — no Gmail queries, no parsing, no HTTP.
 
 ### `gmail.gs`
 Queries `GmailApp` for threads matching `has:attachment filename:pdf
--label:pdf-processed -label:pdf-failed newer_than:7d`, and returns the first
-`application/pdf` attachment per message alongside sender and message ID.
-Also owns label creation and application.
+newer_than:7d` and returns the first PDF attachment per message — matched on
+content type OR a `.pdf` filename, since real senders emit
+`application/octet-stream` — alongside sender and message ID. Also owns label
+creation and application.
+
+**The query carries no label exclusions, deliberately.** Labels are
+thread-scoped, and these same-subject, same-sender bookings land in one Gmail
+conversation, so any `-label:` term would hide every later booking in a thread
+that had already been handled — silently, with no error and no count.
+`dedupe.gs` holds the per-message record that decides what is skipped.
+Restoring a label exclusion would reintroduce that silent loss.
+
+Already-seen messages are skipped **before** their attachments are fetched,
+which is what keeps the per-tick Gmail cost flat despite re-enumerating
+handled threads.
 
 The `newer_than:7d` bound keeps the query cheap and stops the job from
 re-examining the entire mailbox once it has been running for months.
@@ -96,6 +109,16 @@ deletes the temporary file outright (`Drive.Files.remove`, not trash) in a
 `finally` block, so a mid-run failure cannot leave copies of the source
 document accumulating in Drive.
 
+### `dedupe.gs`
+The per-message processing record, in script properties: `timestamp|outcome`
+keyed by Gmail message ID, pruned past the search window. This is the single
+source of truth for what has been handled, and the only thing preventing both
+duplicate delivery and silent loss. Thread labels cannot serve the purpose —
+see `gmail.gs` above. Labels remain, but only for human visibility.
+
+`seedBacklog` marks existing messages as handled without delivering them, so
+an operator can suppress a pre-existing backlog at deploy time safely.
+
 ### `extract.gs`
 The only file that knows anything about the specific document. The source
 document places each label on its own line with the value on the next line,
@@ -106,8 +129,11 @@ const FIELDS = [
   { key: 'patient_first_name',       label: 'Patient first name' },
   { key: 'patient_surname',          label: 'Patient surname' },
   { key: 'patient_gender',           label: 'Patient gender' },
+  // Transforms are wrapped in function literals, never referenced bare.
+  // A bare reference is resolved when this array is built, which depends on
+  // Apps Script's file load order — and that order is not version-controlled.
   { key: 'patient_date_of_birth',    label: 'Patient date of birth',
-    transform: auDateToIso },
+    transform: function (v) { return auDateToIso(v); } },
   { key: 'patient_appointment_date', label: 'Patient appointment date',
     transform: auDateToIso },
   { key: 'patient_appointment_time', label: 'Patient appointment time',
@@ -258,16 +284,19 @@ distinctly (`pdf-partial`) so incomplete records stay reviewable in Gmail
 without blocking delivery. Only a total failure to read the document, or a
 delivery failure, stops a record reaching Zapier.
 
-The optional daily summary trigger reports counts of both `pdf-failed` and
-`pdf-partial` threads, so a template change that quietly breaks one field
+The optional daily summary trigger reports counts of `pdf-failed`,
+`pdf-partial` and `pdf-ignored` threads — ignored included because an
+allowlist that stops matching would otherwise drop every booking while the
+summary stayed silent, so a template change that quietly breaks one field
 shows up as a rising partial count rather than going unnoticed.
 
 Two alerting paths, deliberately separated. An *expected* failure — an
-unreadable PDF, a rejected webhook, a document matching nothing — is labelled
-and left for the daily summary to count. An *unexpected* exception means a
-bug, so the run rethrows after labelling and Apps Script emails the owner
-directly. Labels are applied before that throw, so a systemic fault never
-costs a redelivery.
+unreadable PDF, a rejected webhook, a document matching nothing — is recorded
+against the message, labelled, and left for the daily summary to count. An
+*unexpected* exception means a bug, so the run rethrows after labelling and
+Apps Script emails the owner directly, and the message is deliberately NOT
+recorded so it retries next tick. The per-message record in `dedupe.gs`, not
+the ordering of labels, is what prevents a redelivery.
 
 ## Security
 
@@ -324,7 +353,10 @@ loadable by `node --test` locally while remaining valid Apps Script.
 
 Source lives in this repo under `src/` and is pushed with `clasp`. The
 `.clasp.json` file holds the script ID and is committed; script properties
-(hook URL, allowlist) are configured in the Apps Script UI and are not.
+are configured in the Apps Script UI and are not. Three are required:
+`ZAPIER_HOOK_URL`, `SENDER_ALLOWLIST` and `SUMMARY_TO`. Each accessor throws
+when its property is missing, so a misconfiguration fails loudly rather than
+delivering nowhere, accepting every sender, or never sending a summary.
 
 ## Portability
 

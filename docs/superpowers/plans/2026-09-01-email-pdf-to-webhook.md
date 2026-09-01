@@ -2190,25 +2190,22 @@ All three are required. Each accessor throws if its property is missing, so a
 missing value fails loudly in the execution log rather than silently
 delivering nowhere, accepting every sender, or never sending a summary.
 
-- [ ] **Step 7b: Deal with the existing backlog before the trigger runs**
+- [ ] **Step 7b: Suppress the existing backlog, if you want to**
 
-The search window is seven days and the seen store starts empty, so the first
-unattended run will process **every** booking PDF already sitting in the
-mailbox from an allowlisted sender within that window — and deliver them all
-to the Zap.
+The search window is seven days and the processed-message store starts empty,
+so the first unattended run would otherwise process **every** booking PDF
+already sitting in the mailbox from an allowlisted sender within that window,
+and deliver them all to the Zap.
 
-If that is not what you want, run **`seedBacklog`** from the editor's function
-dropdown now, while the trigger is still off. It records every message
-currently matching the search as already seen, with outcome `pdf-ignored`, and
-delivers nothing. It logs how many it seeded.
+If that is not what you want, run `seedBacklog` once from the editor. It marks
+every currently-matching message as already handled — without delivering
+anything — and logs how many it seeded.
 
-**Do not suppress the backlog by labelling threads.** Gmail labels are per
-thread and these bookings share a subject and sender, so they land in one
-conversation: labelling a thread `pdf-ignored` or `pdf-failed` would suppress
-every *future* booking in that conversation too, silently and permanently. The
-search query no longer excludes any label for exactly that reason. `seedBacklog`
-is message-scoped, so the next booking to arrive in one of those same threads
-is processed normally.
+**Do not suppress a backlog by applying labels.** Labels are thread-scoped and
+these bookings share a subject and sender, so Gmail groups them into one
+conversation; labelling a thread would suppress every *future* booking that
+lands in it too, silently. `seedBacklog` records individual messages, which is
+why it is safe.
 
 - [ ] **Step 8: Send a test email**
 
