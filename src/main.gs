@@ -47,7 +47,16 @@ function processInbox() {
 
     var byThread = {};
     candidates.forEach(function (candidate) {
-      var outcome = processOne(candidate, hookUrl, allowlist);
+      var outcome;
+      try {
+        outcome = processOne(candidate, hookUrl, allowlist);
+      } catch (err) {
+        // processOne guards its own known failure modes; this catches the
+        // unexpected ones so a single bad message cannot abandon the whole
+        // batch mid-flight, leaving delivered messages unlabelled.
+        console.error('Unexpected failure processing ' + candidate.messageId + ': ' + err);
+        outcome = LABELS.failed;
+      }
       var id = candidate.thread.getId();
       if (!byThread[id]) {
         byThread[id] = { thread: candidate.thread, label: outcome };
@@ -57,7 +66,15 @@ function processInbox() {
     });
 
     Object.keys(byThread).forEach(function (id) {
-      applyLabel(byThread[id].thread, byThread[id].label);
+      try {
+        applyLabel(byThread[id].thread, byThread[id].label);
+      } catch (err) {
+        // An unlabelled thread is reprocessed next tick and its records
+        // delivered a second time, so failing to label is worth shouting
+        // about — but only this thread is affected.
+        console.error('Failed to label thread ' + id
+          + ' as ' + byThread[id].label + ': ' + err);
+      }
     });
   } finally {
     lock.releaseLock();
@@ -87,11 +104,17 @@ function processOne(candidate, hookUrl, allowlist) {
   var assessment = assessExtraction(record);
 
   if (assessment.empty) {
-    // Nothing matched, so this is almost certainly not the expected
-    // template. Log a bounded excerpt to make the mismatch diagnosable —
-    // a document that matches nothing is unlikely to be a patient booking.
+    // Not one field matched. The document text is NOT logged: the case this
+    // branch exists to catch is template drift, where the document IS a real
+    // booking whose labels stopped matching — so its text is patient data,
+    // and the execution log is a wider boundary than the mailbox. These two
+    // signals separate the likely causes without exposing anything: the
+    // title present means the template changed; absent means a different
+    // document arrived.
     console.error('No fields matched for ' + candidate.messageId
-      + '. First 300 characters: ' + text.slice(0, 300));
+      + ' (extracted ' + text.length + ' characters, expected title '
+      + (text.indexOf('New Patient Booking Activation') !== -1 ? 'present' : 'absent')
+      + '). Open the message in Gmail to inspect the document.');
     return LABELS.failed;
   }
 
