@@ -77,8 +77,11 @@ convention and discipline, not by imports.
 
 ### `main.gs`
 Entry point invoked by the trigger. Acquires a `LockService` script lock so
-overlapping runs cannot double-process a message, iterates candidate
-messages, and routes each to success or failure labelling. Contains
+overlapping runs do not duplicate work, iterates candidate messages, and
+routes each to success or failure labelling. The lock is not what guarantees
+single delivery — Apps Script's execution limit is a hard kill that skips
+`finally`, so a run can die holding it. The per-message record in `dedupe.gs`
+is the guarantee. Contains
 orchestration only — no Gmail queries, no parsing, no HTTP.
 
 ### `gmail.gs`
@@ -270,7 +273,7 @@ a downstream consumer can tell which ruleset produced a given record.
 
 | Failure | Behaviour |
 |---|---|
-| Sender not in allowlist | Skip, label `pdf-ignored`. The address is effectively public once known. |
+| Sender not in allowlist | Skip, record the message as `pdf-ignored`. The address is effectively public once known. Note the thread label reflects the *worst* outcome across its messages, so a conversation mixing ignored and processed messages shows the processed label — the ignored count comes from the per-message store, not from labels. |
 | No PDF attachment | Skip silently — ordinary mail will land in this box. |
 | Drive conversion fails | Label `pdf-failed`, log the message ID. Nothing sent. |
 | Zero fields extracted | Label `pdf-failed`, log the message id, character count and whether the expected title is present — never the text itself, which would be patient data. Nothing sent. |

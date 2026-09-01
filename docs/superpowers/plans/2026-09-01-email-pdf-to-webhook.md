@@ -1707,12 +1707,10 @@ test('the query requires a pdf attachment', () => {
   assert.match(query, /filename:pdf/);
 });
 
-test('the query excludes every terminal label', () => {
-  const query = app.buildSearchQuery();
-  assert.match(query, /-label:pdf-processed/);
-  assert.match(query, /-label:pdf-partial/);
-  assert.match(query, /-label:pdf-failed/);
-  assert.match(query, /-label:pdf-ignored/);
+test('the query carries no label exclusions', () => {
+  // Regression guard. Label exclusions are thread-scoped and would hide later
+  // bookings in an already-handled conversation. Do not "restore" them.
+  assert.ok(!/-label:/.test(app.buildSearchQuery()));
 });
 
 test('the query is bounded in time', () => {
@@ -1736,13 +1734,15 @@ Expected: FAIL — `ENOENT ... src/gmail.gs` (the file does not exist yet;
  * automatically.
  */
 function buildSearchQuery() {
-  return 'has:attachment filename:pdf'
-    + ' -label:' + LABELS.processed
-    + ' -label:' + LABELS.partial
-    + ' -label:' + LABELS.failed
-    + ' -label:' + LABELS.ignored
-    + ' newer_than:7d';
+  return 'has:attachment filename:pdf newer_than:7d';
 }
+
+// NOTE: this query deliberately carries NO label exclusions. Labels are
+// thread-scoped, and these same-subject, same-sender bookings share one Gmail
+// conversation, so any `-label:` term would hide every later booking in a
+// thread that had already been handled — silently, with no error and no
+// count. dedupe.gs holds the per-message record that decides what is skipped.
+// Restoring a label exclusion here reintroduces silent data loss.
 
 /** The first PDF attachment on a message, or null. Inline images are ignored. */
 function firstPdfAttachment(message) {
@@ -2189,6 +2189,15 @@ In the editor: **Project Settings** → **Script Properties** → add:
 All three are required. Each accessor throws if its property is missing, so a
 missing value fails loudly in the execution log rather than silently
 delivering nowhere, accepting every sender, or never sending a summary.
+
+- [ ] **Step 7a: Delete any stale `sent:*` script properties**
+
+Only relevant if you ran an earlier build of this script. An intermediate
+version recorded delivered messages under a `sent:` prefix; the current one
+uses `seen:`. Stale `sent:*` entries are never read and never pruned, and a
+message recorded only under the old prefix would be delivered once more.
+Delete any you see in **Project Settings → Script Properties**. A fresh
+install has none.
 
 - [ ] **Step 7b: Suppress the existing backlog, if you want to**
 
