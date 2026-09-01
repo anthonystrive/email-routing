@@ -102,3 +102,9 @@ test('a label with no following line yields null', () => {
   const record = app.extractFields('Patient first name:');
   assert.strictEqual(record.patient_first_name, null);
 });
+
+test('a label with a blank value does not consume the next label', () => {
+  const record = app.extractFields(fx.BLANK_VALUE);
+  assert.strictEqual(record.account_holder_a_email, null);
+  assert.strictEqual(record.needs_referral_for, 'OPG + Lateral Cephalogram');
+});

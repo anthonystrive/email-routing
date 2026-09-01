@@ -38,6 +38,11 @@ const MISSING_LABEL = COMPLETE
 const BAD_DATE = COMPLETE
   .replace('5/4/1988', '05-04-88');
 
+// A label the form emitted with no value, so the next label follows it
+// directly. Without a guard, that label text becomes the field's value.
+const BLANK_VALUE = COMPLETE
+  .replace('Account holder A email:\njamie@example.com\n', 'Account holder A email:\n');
+
 const WITH_ACCOUNT_HOLDER_B = COMPLETE
   .replace('Needs referral for:', [
     'Account holder B titled full name:',
@@ -65,6 +70,7 @@ module.exports = {
   MISSING_LABEL,
   BAD_DATE,
   WITH_ACCOUNT_HOLDER_B,
+  BLANK_VALUE,
   UNRELATED,
   withReferral,
 };

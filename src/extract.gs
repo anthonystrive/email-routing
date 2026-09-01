@@ -39,6 +39,21 @@ var FIELDS = [
 ];
 
 /**
+ * True when a line is itself one of the document's labels.
+ *
+ * The form emits a label even when its value is blank, and toLines has
+ * already dropped the empty line — so without this check the NEXT label
+ * would be consumed as this field's value, writing plausible-looking
+ * garbage ('Needs referral for:') into an email or phone field.
+ */
+function isLabelLine(line) {
+  var candidate = line.toLowerCase().replace(/:$/, '').trim();
+  return FIELDS.some(function (field) {
+    return field.label.toLowerCase().replace(/:$/, '').trim() === candidate;
+  });
+}
+
+/**
  * Finds a label line and returns the next line, which is its value.
  * Comparison is case-insensitive and tolerates a missing trailing colon.
  */
@@ -47,7 +62,8 @@ function findValueForLabel(lines, label) {
   for (let i = 0; i < lines.length; i++) {
     const candidate = lines[i].toLowerCase().replace(/:$/, '').trim();
     if (candidate === target) {
-      return i + 1 < lines.length ? lines[i + 1] : null;
+      if (i + 1 >= lines.length) return null;
+      return isLabelLine(lines[i + 1]) ? null : lines[i + 1];
     }
   }
   return null;
