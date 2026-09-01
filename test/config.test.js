@@ -63,10 +63,10 @@ test('a decoy address in a quoted display name does not win', () => {
     'attacker@evil.com');
 });
 
-test('the last angle-addr wins when several are present', () => {
+test('a header with several angle-addrs is rejected', () => {
   assert.strictEqual(
     app.extractEmailAddress('Real Name <bookings@example.com> <attacker@evil.com>'),
-    'attacker@evil.com');
+    '');
 });
 
 test('a decoy display name does not pass the allowlist', () => {
@@ -76,10 +76,10 @@ test('a decoy display name does not pass the allowlist', () => {
     false);
 });
 
-test('a decoy in an rfc5322 comment does not win', () => {
+test('a header containing a comment is rejected', () => {
   assert.strictEqual(
     app.extractEmailAddress('<attacker@evil.com> (note: <bookings@example.com>)'),
-    'attacker@evil.com');
+    '');
 });
 
 test('a comment decoy does not pass the allowlist', () => {
@@ -102,4 +102,26 @@ test('a multi-mailbox From is rejected outright', () => {
 test('legitimate address forms still extract correctly', () => {
   assert.strictEqual(app.extractEmailAddress('bookings+tag@example.com'), 'bookings+tag@example.com');
   assert.strictEqual(app.extractEmailAddress('user@sub.example.museum'), 'user@sub.example.museum');
+});
+
+test('a nested comment cannot smuggle a decoy', () => {
+  assert.strictEqual(
+    app.extractEmailAddress('<attacker@evil.com> (note (x) <bookings@example.com>)'),
+    '');
+  assert.strictEqual(
+    app.isAllowedSender('<attacker@evil.com> (note (x) <bookings@example.com>)',
+      ['bookings@example.com']),
+    false);
+});
+
+test('an unquoted comma in a display name is still accepted', () => {
+  assert.strictEqual(
+    app.extractEmailAddress('Smith, John <john@clinic.com.au>'),
+    'john@clinic.com.au');
+});
+
+test('a quoted comma in a display name is still accepted', () => {
+  assert.strictEqual(
+    app.extractEmailAddress('"Smith, John" <john@clinic.com.au>'),
+    'john@clinic.com.au');
 });

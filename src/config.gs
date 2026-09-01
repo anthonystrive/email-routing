@@ -6,6 +6,13 @@ var LABELS = {
 };
 
 /**
+ * Address forms this system accepts from a From header. Deliberately narrow:
+ * no angle brackets, commas, parens or quotes inside the address itself.
+ */
+var ADDR_PATTERN = '[^\\s<>@,()"]+@[^\\s<>@,()"]+';
+
+
+/**
  * Throws rather than returning empty. A missing hook URL means delivering
  * nowhere; a missing allowlist means accepting every sender. Both are worse
  * silently than loudly.
@@ -32,31 +39,40 @@ function getAllowlist() {
 /**
  * 'Tops Ortho <bookings@example.com>' -> 'bookings@example.com'
  *
- * Security-critical, and deliberately strict. RFC 5322 lets a sender hide a
- * decoy address in places that are not the real address: a quoted-string
- * display name, or a parenthesised comment. Both are stripped before the
- * address is read, and the LAST angle-addr wins — that is where the real
- * address sits in a `display-name angle-addr` mailbox.
+ * Security-critical, and a whitelist by design. RFC 5322 lets a sender hide
+ * a decoy address inside a quoted display name or a (possibly nested)
+ * comment, and earlier attempts to strip those constructs kept missing
+ * variants. So instead of removing what looks dangerous, this accepts only
+ * three shapes that are unambiguous, and returns '' for everything else —
+ * including multi-mailbox headers and anything with a comment in it. The
+ * caller then fails closed.
  *
- * A `From` carrying several mailboxes is rejected outright: a header
- * claiming two authors, only one of them trusted, is not something this
- * system should try to adjudicate.
- *
- * Anything that does not then look like a single address yields '' so the
- * caller fails closed.
+ * A rejected header shows up as a pdf-ignored label in Gmail, which is
+ * visible and recoverable. Silently trusting a forged sender is not.
  */
 function extractEmailAddress(from) {
   if (!from) return '';
-  var text = String(from)
-    .replace(/"(?:[^"\\]|\\.)*"/g, '')
-    .replace(/\([^()]*\)/g, '');
-  if (text.indexOf(',') !== -1) return '';
-  var groups = text.match(/<([^<>]+)>/g);
-  var address = groups && groups.length
-    ? groups[groups.length - 1].slice(1, -1)
-    : text;
-  address = address.trim().toLowerCase();
-  return /^[^\s<>@]+@[^\s<>@]+$/.test(address) ? address : '';
+  var text = String(from).trim();
+
+  // 1. A bare address and nothing else.
+  if (new RegExp('^' + ADDR_PATTERN + '$').test(text)) {
+    return text.toLowerCase();
+  }
+
+  // 2. A quoted display name, then exactly one angle-addr at the very end.
+  //    The quoted part may contain anything, including a decoy — it is not
+  //    the address, and the trailing angle-addr is.
+  var quoted = new RegExp('^"(?:[^"\\\\]|\\\\.)*"\\s*<(' + ADDR_PATTERN + ')>$').exec(text);
+  if (quoted) return quoted[1].toLowerCase();
+
+  // 3. An unquoted display name, then exactly one angle-addr at the very
+  //    end. The display name may contain a comma ('Smith, John') but not
+  //    '@', '<', '>', '(', ')' or '"' — those are how a second address gets
+  //    smuggled in.
+  var plain = new RegExp('^[^<>()"@]*<(' + ADDR_PATTERN + ')>$').exec(text);
+  if (plain) return plain[1].toLowerCase();
+
+  return '';
 }
 
 /**
