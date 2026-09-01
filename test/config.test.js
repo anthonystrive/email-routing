@@ -75,3 +75,31 @@ test('a decoy display name does not pass the allowlist', () => {
       ['bookings@example.com']),
     false);
 });
+
+test('a decoy in an rfc5322 comment does not win', () => {
+  assert.strictEqual(
+    app.extractEmailAddress('<attacker@evil.com> (note: <bookings@example.com>)'),
+    'attacker@evil.com');
+});
+
+test('a comment decoy does not pass the allowlist', () => {
+  assert.strictEqual(
+    app.isAllowedSender('<attacker@evil.com> (note: <bookings@example.com>)',
+      ['bookings@example.com']),
+    false);
+});
+
+test('a multi-mailbox From is rejected outright', () => {
+  assert.strictEqual(
+    app.extractEmailAddress('attacker@evil.com, "Second" <bookings@example.com>'),
+    '');
+  assert.strictEqual(
+    app.isAllowedSender('attacker@evil.com, "Second" <bookings@example.com>',
+      ['bookings@example.com']),
+    false);
+});
+
+test('legitimate address forms still extract correctly', () => {
+  assert.strictEqual(app.extractEmailAddress('bookings+tag@example.com'), 'bookings+tag@example.com');
+  assert.strictEqual(app.extractEmailAddress('user@sub.example.museum'), 'user@sub.example.museum');
+});

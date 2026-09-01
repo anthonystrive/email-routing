@@ -32,17 +32,25 @@ function getAllowlist() {
 /**
  * 'Tops Ortho <bookings@example.com>' -> 'bookings@example.com'
  *
- * Security-critical. RFC 5322 permits a quoted-string display name to
- * contain '<', '>' and '@', so a sender can plant a decoy address ahead of
- * their real one: `"Trusted <ok@example.com>" <attacker@evil.com>`. Quoted
- * segments are therefore stripped first, and the LAST angle-addr wins —
- * that is where the real address sits in a `display-name angle-addr`
- * mailbox. Anything that does not then look like a single address yields
- * '' so the caller fails closed.
+ * Security-critical, and deliberately strict. RFC 5322 lets a sender hide a
+ * decoy address in places that are not the real address: a quoted-string
+ * display name, or a parenthesised comment. Both are stripped before the
+ * address is read, and the LAST angle-addr wins — that is where the real
+ * address sits in a `display-name angle-addr` mailbox.
+ *
+ * A `From` carrying several mailboxes is rejected outright: a header
+ * claiming two authors, only one of them trusted, is not something this
+ * system should try to adjudicate.
+ *
+ * Anything that does not then look like a single address yields '' so the
+ * caller fails closed.
  */
 function extractEmailAddress(from) {
   if (!from) return '';
-  var text = String(from).replace(/"(?:[^"\\]|\\.)*"/g, '');
+  var text = String(from)
+    .replace(/"(?:[^"\\]|\\.)*"/g, '')
+    .replace(/\([^()]*\)/g, '');
+  if (text.indexOf(',') !== -1) return '';
   var groups = text.match(/<([^<>]+)>/g);
   var address = groups && groups.length
     ? groups[groups.length - 1].slice(1, -1)
