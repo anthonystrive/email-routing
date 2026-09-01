@@ -30,10 +30,18 @@ function worseOutcome(a, b) {
  * impossible.
  *
  * Labels are applied per thread, after every message in that thread has been
- * processed, and only for threads that actually had work done this run. They
- * are human-visible status only — a thread label cannot be the idempotency
- * key, because Gmail groups these same-subject bookings into one conversation
- * and the label would hide every booking after the first.
+ * processed. They are human-visible status only — a thread label cannot be
+ * the idempotency key, because Gmail groups these same-subject bookings into
+ * one conversation and the label would hide every booking after the first.
+ *
+ * ensureLabels() is deliberately NOT called here. It costs four Gmail label
+ * lookups, and at one run a minute that is 5,760 operations a day spent
+ * re-confirming labels that already exist — enough, on top of the search and
+ * attachment traffic, to push a consumer account past its 20,000/day Gmail
+ * quota, at which point GmailApp.search throws and nothing is processed for
+ * the rest of the day. The labels are created by installTrigger (before the
+ * trigger can ever fire) and by the manual entry points, and applyLabel
+ * creates a missing label on demand, so nothing here depends on it.
  */
 function processInbox() {
   var lock = LockService.getScriptLock();
@@ -43,7 +51,6 @@ function processInbox() {
   }
 
   try {
-    ensureLabels();
     pruneSeen();
     var hookUrl = getHookUrl();
     var allowlist = getAllowlist();
@@ -56,11 +63,6 @@ function processInbox() {
     var byThread = {};
     var unexpectedFailures = 0;
     candidates.forEach(function (candidate) {
-      // Whether this message earned its outcome now, or merely had one read
-      // back out of the store. A thread whose messages were all already seen
-      // must not be relabelled: every tick would otherwise re-add labels that
-      // are already there, once per thread, forever.
-      var didWork = getSeenOutcome(candidate.messageId) === null;
       var outcome;
       try {
         outcome = processOne(candidate, hookUrl, allowlist);
@@ -71,19 +73,22 @@ function processInbox() {
         console.error('Unexpected failure processing ' + candidate.messageId + ': ' + err);
         unexpectedFailures++;
         outcome = LABELS.failed;
-        didWork = true;
       }
       var id = candidate.thread.getId();
       if (!byThread[id]) {
-        byThread[id] = { thread: candidate.thread, label: outcome, worked: didWork };
+        byThread[id] = { thread: candidate.thread, label: outcome };
       } else {
         byThread[id].label = worseOutcome(byThread[id].label, outcome);
-        byThread[id].worked = byThread[id].worked || didWork;
       }
     });
 
+    // Every thread that produced a candidate is labelled. There is no
+    // "did we actually do work?" flag because there is nothing for it to
+    // decide: findCandidates already drops messages the seen store knows
+    // about, so a thread whose messages have all been handled yields no
+    // candidates and never reaches this loop. That filter — not a flag here —
+    // is what stops handled threads being relabelled every tick.
     Object.keys(byThread).forEach(function (id) {
-      if (!byThread[id].worked) return;
       try {
         applyLabel(byThread[id].thread, byThread[id].label);
       } catch (err) {
@@ -188,7 +193,24 @@ function processOne(candidate, hookUrl, allowlist) {
   // Recorded the instant delivery succeeds, before anything that could throw
   // or time out. Everything after this point is labelling and logging, none
   // of which is allowed to cost a second POST.
-  markSeen(candidate.messageId, outcome);
+  //
+  // The write is guarded because it can fail on its own — the script property
+  // store has a 500 KB cap, and PropertiesService has transient faults. Once
+  // the POST has landed, failing to record is strictly better than re-throwing:
+  // a throw here escapes processOne into the unexpected-failure path, which
+  // deliberately leaves the message unrecorded, and every subsequent tick then
+  // re-delivers a record the webhook already has. An unrecorded delivery may be
+  // repeated once we get here whatever we do; re-throwing guarantees it repeats
+  // every minute until the store recovers. So: log loudly and return normally.
+  try {
+    markSeen(candidate.messageId, outcome);
+  } catch (err) {
+    console.error('DELIVERED BUT NOT RECORDED: ' + candidate.messageId
+      + ' was POSTed successfully, but writing its outcome (' + outcome
+      + ') to the seen store failed: ' + err
+      + '. This record MAY BE REDELIVERED on a later run. Check the script '
+      + 'property store (it has a 500 KB cap) before the next tick.');
+  }
 
   if (outcome === LABELS.partial) {
     console.log('Delivered partial record for ' + candidate.messageId
@@ -224,7 +246,6 @@ function runOnce() {
   var byThread = {};
   candidates.forEach(function (candidate) {
     console.log('Processing message ' + candidate.messageId);
-    var didWork = getSeenOutcome(candidate.messageId) === null;
     var outcome;
     try {
       outcome = processOne(candidate, hookUrl, allowlist);
@@ -234,20 +255,19 @@ function runOnce() {
       // human-visible status at all.
       console.error('Unexpected failure processing ' + candidate.messageId + ': ' + err);
       outcome = LABELS.failed;
-      didWork = true;
     }
     console.log('Outcome for ' + candidate.messageId + ': ' + outcome);
     var id = candidate.thread.getId();
     if (!byThread[id]) {
-      byThread[id] = { thread: candidate.thread, label: outcome, worked: didWork };
+      byThread[id] = { thread: candidate.thread, label: outcome };
     } else {
       byThread[id].label = worseOutcome(byThread[id].label, outcome);
-      byThread[id].worked = byThread[id].worked || didWork;
     }
   });
 
+  // As in processInbox: findCandidates' seen-store filter is what keeps a
+  // handled thread out of this loop, so no per-thread "worked" flag is needed.
   Object.keys(byThread).forEach(function (id) {
-    if (!byThread[id].worked) return;
     applyLabel(byThread[id].thread, byThread[id].label);
     console.log('Labelled thread ' + id + ' as ' + byThread[id].label + '.');
   });
@@ -265,28 +285,50 @@ function runOnce() {
  * every FUTURE booking that landed in the same conversation. Seeding the
  * per-message store suppresses exactly the messages that exist right now;
  * anything that arrives afterwards is processed normally.
+ *
+ * Takes the same script lock processInbox does. It is meant to be run with the
+ * trigger off, but it cannot assume it was: seeding alongside a live tick can
+ * write pdf-ignored over a booking that run is midway through handling, and
+ * that booking is then never delivered and never reported.
  */
 function seedBacklog() {
-  var seeded = 0;
-  var threads = GmailApp.search(buildSearchQuery(), 0, 500);
-  threads.forEach(function (thread) {
-    thread.getMessages().forEach(function (message) {
-      var messageId = message.getId();
-      if (getSeenOutcome(messageId) !== null) return;
-      markSeen(messageId, LABELS.ignored);
-      seeded++;
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) {
+    console.log('A processing run holds the lock; nothing was seeded. '
+      + 'Turn the trigger off and run seedBacklog again.');
+    return;
+  }
+
+  try {
+    ensureLabels();
+    var seeded = 0;
+    var threads = GmailApp.search(buildSearchQuery(), 0, 500);
+    threads.forEach(function (thread) {
+      thread.getMessages().forEach(function (message) {
+        var messageId = message.getId();
+        if (getSeenOutcome(messageId) !== null) return;
+        markSeen(messageId, LABELS.ignored);
+        seeded++;
+      });
     });
-  });
-  console.log('Seeded ' + seeded + ' backlog message(s) as '
-    + LABELS.ignored + '. Nothing was delivered. Messages arriving from now '
-    + 'on are processed normally, including in these same threads.');
+    console.log('Seeded ' + seeded + ' backlog message(s) as '
+      + LABELS.ignored + '. Nothing was delivered. Messages arriving from now '
+      + 'on are processed normally, including in these same threads.');
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /**
  * Installs the minute-by-minute trigger, removing any existing one first so
  * running this twice does not double the processing rate.
+ *
+ * The labels are created here, once, rather than on every tick. This runs
+ * before the trigger exists, so they are in place before processInbox can
+ * ever fire.
  */
 function installTrigger() {
+  ensureLabels();
   ScriptApp.getProjectTriggers().forEach(function (trigger) {
     if (trigger.getHandlerFunction() === 'processInbox') {
       ScriptApp.deleteTrigger(trigger);

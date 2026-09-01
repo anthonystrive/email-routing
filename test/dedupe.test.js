@@ -138,6 +138,85 @@ test('getSeenOutcome treats a malformed record as never processed', () => {
   assert.strictEqual(app.getSeenOutcome('half'), null);
 });
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+test('countSeenSince counts entries by outcome', () => {
+  const { app, store } = load();
+  const now = Date.now();
+  store['seen:a'] = String(now) + '|pdf-failed';
+  store['seen:b'] = String(now) + '|pdf-failed';
+  store['seen:c'] = String(now) + '|pdf-partial';
+  store['seen:d'] = String(now) + '|pdf-processed';
+
+  const counts = app.countSeenSince(DAY_MS);
+
+  assert.strictEqual(counts['pdf-failed'], 2);
+  assert.strictEqual(counts['pdf-partial'], 1);
+  assert.strictEqual(counts['pdf-processed'], 1);
+});
+
+test('countSeenSince counts messages, not threads', () => {
+  // The whole reason this exists. The old summary searched Gmail for
+  // `label:pdf-failed newer_than:1d` and counted THREADS: labels are per
+  // thread and never removed, and these same-subject bookings share one
+  // conversation, so twenty failures in a day reported "Failed: 1". Each
+  // entry here is one message, so twenty report twenty.
+  const { app, store } = load();
+  const now = Date.now();
+  for (let i = 0; i < 20; i++) {
+    store['seen:msg-' + i] = String(now) + '|pdf-failed';
+  }
+  assert.strictEqual(app.countSeenSince(DAY_MS)['pdf-failed'], 20);
+});
+
+test('countSeenSince excludes entries older than the window', () => {
+  const { app, store } = load();
+  const now = Date.now();
+  store['seen:today'] = String(now) + '|pdf-failed';
+  store['seen:yesterday'] = String(now - DAY_MS - 60000) + '|pdf-failed';
+
+  const counts = app.countSeenSince(DAY_MS);
+
+  assert.strictEqual(counts['pdf-failed'], 1, 'only the entry inside the window counts');
+});
+
+test('countSeenSince ignores malformed values', () => {
+  const { app, store } = load();
+  const now = Date.now();
+  store['seen:good'] = String(now) + '|pdf-failed';
+  store['seen:empty'] = '';
+  store['seen:no-separator'] = String(now);
+  store['seen:not-a-number'] = 'garbage|pdf-failed';
+  store['seen:no-outcome'] = String(now) + '|';
+
+  const counts = app.countSeenSince(DAY_MS);
+
+  assert.strictEqual(counts['pdf-failed'], 1);
+  assert.strictEqual(Object.keys(counts).length, 1,
+    'no malformed record should contribute an outcome key');
+});
+
+test('countSeenSince never counts the configuration properties', () => {
+  // The configuration shares this store. Without the SEEN_PREFIX guard,
+  // ZAPIER_HOOK_URL would be read as an outcome and inflate the summary.
+  const { app } = load({
+    ZAPIER_HOOK_URL: 'https://hooks.zapier.com/hooks/catch/1/abc/',
+    SENDER_ALLOWLIST: 'bookings@clinic.com.au',
+    SUMMARY_TO: 'owner@clinic.com.au',
+  });
+  assert.strictEqual(Object.keys(app.countSeenSince(DAY_MS)).length, 0);
+});
+
+test('countSeenSince returns zero counts on an empty store', () => {
+  const { app } = load();
+  const counts = app.countSeenSince(DAY_MS);
+  assert.strictEqual(Object.keys(counts).length, 0);
+  // How the summary reads it: an absent outcome is a zero, not a crash.
+  assert.strictEqual(counts['pdf-failed'] || 0, 0);
+  assert.strictEqual(counts['pdf-partial'] || 0, 0);
+  assert.strictEqual(counts['pdf-ignored'] || 0, 0);
+});
+
 test('an outcome containing a pipe still round trips its first segment intact', () => {
   // Defensive: outcomes come from LABELS and contain no pipe today. The split
   // must be on the FIRST separator so the timestamp is never confused with

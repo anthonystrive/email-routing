@@ -1,9 +1,22 @@
+var SUMMARY_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The Gmail search a reader runs by hand to LOOK AT the affected messages.
+ * It is no longer how the summary COUNTS them — see sendDailySummary.
+ */
 function buildSummaryQuery(labelName) {
   return 'label:' + labelName + ' newer_than:1d';
 }
 
 /**
  * Emails a count of yesterday's failures, partials and ignored messages.
+ *
+ * Counts come from the dedupe store, not from Gmail. Searching `label:X
+ * newer_than:1d` counts THREADS, and labels are per thread and never removed:
+ * these same-subject bookings all land in one conversation, so every count was
+ * 0 or 1 whatever the volume — one old failure reported "Failed: 1" every day
+ * forever, and twenty failures in a day also reported 1. The store holds one
+ * timestamped outcome per MESSAGE, so countSeenSince is exact.
  *
  * Sends nothing when all three counts are zero — a daily "all clear" trains
  * you to ignore the message, which defeats the purpose.
@@ -21,9 +34,10 @@ function sendDailySummary() {
   // the summary must not fail.
   var recipient = getSummaryRecipient();
 
-  var failed = GmailApp.search(buildSummaryQuery(LABELS.failed)).length;
-  var partial = GmailApp.search(buildSummaryQuery(LABELS.partial)).length;
-  var ignored = GmailApp.search(buildSummaryQuery(LABELS.ignored)).length;
+  var counts = countSeenSince(SUMMARY_WINDOW_MS);
+  var failed = counts[LABELS.failed] || 0;
+  var partial = counts[LABELS.partial] || 0;
+  var ignored = counts[LABELS.ignored] || 0;
 
   if (failed === 0 && partial === 0 && ignored === 0) return;
 
