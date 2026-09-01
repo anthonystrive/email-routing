@@ -12,28 +12,46 @@ var EXTRACTOR_VERSION = '1.0.0';
  * record's completeness. Account holder B is a safeguard — most bookings
  * have only one account holder, and without `optional` every single record
  * would report as incomplete.
+ *
+ * `pattern` is a shape check, not a format validator. isLabelLine only knows
+ * the 13 labels below, so a label emitted with a blank value followed by
+ * document boilerplate (a footer, a title, 'Page 1 of 1') would take that
+ * line as its value and still report complete — a wrong value is worse than
+ * a null, because downstream cannot detect it. A value failing its pattern is
+ * nulled, which routes it into missing_fields and pdf-partial exactly as a
+ * failed transform does. Kept deliberately loose: the goal is rejecting
+ * obvious boilerplate, not validating addresses or phone numbers.
+ *
+ * Every `transform` is wrapped in a function literal rather than named
+ * directly. A bare reference is dereferenced when this array is BUILT, which
+ * depends on the order Apps Script evaluates project files — alphabetical by
+ * clasp default, so extract.gs would load before transforms.gs and throw
+ * ReferenceError at load time, killing every execution. File order is not
+ * version-controlled, so the reference must be resolved at call time instead.
  */
 var FIELDS = [
   { key: 'patient_first_name',       label: 'Patient first name' },
   { key: 'patient_surname',          label: 'Patient surname' },
   { key: 'patient_gender',           label: 'Patient gender' },
   { key: 'patient_date_of_birth',    label: 'Patient date of birth',
-    transform: auDateToIso },
+    transform: function (v) { return auDateToIso(v); } },
   { key: 'patient_appointment_date', label: 'Patient appointment date',
-    transform: auDateToIso },
+    transform: function (v) { return auDateToIso(v); } },
   { key: 'patient_appointment_time', label: 'Patient appointment time',
-    transform: normaliseTime },
+    transform: function (v) { return normaliseTime(v); } },
 
   { key: 'account_holder_a_name',    label: 'Account holder A titled full name' },
-  { key: 'account_holder_a_mobile',  label: 'Account holder A mobile number' },
-  { key: 'account_holder_a_email',   label: 'Account holder A email' },
+  { key: 'account_holder_a_mobile',  label: 'Account holder A mobile number',
+    pattern: /\d/ },
+  { key: 'account_holder_a_email',   label: 'Account holder A email',
+    pattern: /@/ },
 
   { key: 'account_holder_b_name',    label: 'Account holder B titled full name',
     optional: true },
   { key: 'account_holder_b_mobile',  label: 'Account holder B mobile number',
-    optional: true },
+    optional: true, pattern: /\d/ },
   { key: 'account_holder_b_email',   label: 'Account holder B email',
-    optional: true },
+    optional: true, pattern: /@/ },
 
   { key: 'needs_referral_for',       label: 'Needs referral for' },
 ];
@@ -83,6 +101,11 @@ function extractFields(rawText) {
     let value = raw;
     if (value !== null && field.transform) {
       value = field.transform(value);
+    }
+    // A value that cannot be what this field holds is treated as not found.
+    if (value !== null && value !== undefined && field.pattern
+        && !field.pattern.test(String(value))) {
+      value = null;
     }
     record[field.key] = (value === '' || value === undefined) ? null : value;
   });

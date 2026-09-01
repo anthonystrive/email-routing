@@ -108,3 +108,52 @@ test('a label with a blank value does not consume the next label', () => {
   assert.strictEqual(record.account_holder_a_email, null);
   assert.strictEqual(record.needs_referral_for, 'OPG + Lateral Cephalogram');
 });
+
+test('boilerplate taken as an email value is rejected, not delivered', () => {
+  // isLabelLine only knows the 13 labels, so a footer following a blank label
+  // slips through as a value. Delivering 'Page 1 of 1' as an email address
+  // while reporting complete:true is worse than a null, because nothing
+  // downstream can tell it is wrong.
+  const record = app.extractFields(fx.BOILERPLATE_VALUE);
+  assert.strictEqual(record.account_holder_a_email, null);
+});
+
+test('a legitimate email value passes the shape check', () => {
+  const record = app.extractFields(fx.COMPLETE);
+  assert.strictEqual(record.account_holder_a_email, 'jamie@example.com');
+});
+
+test('boilerplate taken as a mobile value is rejected', () => {
+  const record = app.extractFields(fx.BOILERPLATE_MOBILE);
+  assert.strictEqual(record.account_holder_a_mobile, null);
+});
+
+test('a legitimate mobile value passes the shape check', () => {
+  const record = app.extractFields(fx.COMPLETE);
+  assert.strictEqual(record.account_holder_a_mobile, '+61-400-000-000');
+});
+
+test('a rejected value does not disturb the rest of the record', () => {
+  const record = app.extractFields(fx.BOILERPLATE_VALUE);
+  assert.strictEqual(record.patient_first_name, 'Alex');
+  assert.strictEqual(record.account_holder_a_mobile, '+61-400-000-000');
+  assert.strictEqual(record.needs_referral_for, 'OPG + Lateral Cephalogram');
+});
+
+test('the shape check stays loose enough for unusual real values', () => {
+  // Deliberately not address or phone validation — only enough to reject
+  // obvious boilerplate. These are odd but plausible, and must survive.
+  const odd = fx.COMPLETE
+    .replace('jamie@example.com', 'jamie+bookings@sub.example.museum')
+    .replace('+61-400-000-000', '(07) 4000 0000 ext. 12');
+  const record = app.extractFields(odd);
+  assert.strictEqual(record.account_holder_a_email, 'jamie+bookings@sub.example.museum');
+  assert.strictEqual(record.account_holder_a_mobile, '(07) 4000 0000 ext. 12');
+});
+
+test('a rejected value is reported as missing, not as complete', () => {
+  const app2 = loadAppsScript(['text.gs', 'transforms.gs', 'extract.gs', 'validate.gs']);
+  const assessment = app2.assessExtraction(app2.extractFields(fx.BOILERPLATE_VALUE));
+  assert.strictEqual(assessment.complete, false);
+  assert.ok(assessment.missing_fields.includes('account_holder_a_email'));
+});

@@ -6,11 +6,16 @@
  * plain ASCII equivalents. The explicit whitespace pass then catches every
  * space separator, including the narrow no-break space (U+202F) that
  * separates the appointment time from its meridiem.
+ *
+ * The zero-width space (U+200B) and byte order mark (U+FEFF) are in the class
+ * too. Neither is folded by NFKC and neither is visible, so one sitting
+ * inside a label would break the match with nothing to see in the output.
+ * Both collapse to a space, which toLines then trims away.
  */
 function normaliseText(raw) {
   if (raw === null || raw === undefined) return '';
   let text = String(raw).normalize('NFKC');
-  text = text.replace(/[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]/g, ' ');
+  text = text.replace(/[\u00a0\u1680\u2000-\u200a\u200b\u202f\u205f\u3000\ufeff]/g, ' ');
   text = text.replace(/\r\n?/g, '\n');
   return text;
 }

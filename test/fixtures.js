@@ -43,6 +43,16 @@ const BAD_DATE = COMPLETE
 const BLANK_VALUE = COMPLETE
   .replace('Account holder A email:\njamie@example.com\n', 'Account holder A email:\n');
 
+// A label emitted with a blank value, where the line that follows is document
+// boilerplate rather than another known label — so isLabelLine cannot see it
+// and the footer would be taken as the email address.
+const BOILERPLATE_VALUE = COMPLETE
+  .replace('jamie@example.com', 'Page 1 of 1');
+
+// The same failure on a phone field: a title, not a number.
+const BOILERPLATE_MOBILE = COMPLETE
+  .replace('+61-400-000-000', 'New Patient Booking Activation');
+
 const WITH_ACCOUNT_HOLDER_B = COMPLETE
   .replace('Needs referral for:', [
     'Account holder B titled full name:',
@@ -71,6 +81,8 @@ module.exports = {
   BAD_DATE,
   WITH_ACCOUNT_HOLDER_B,
   BLANK_VALUE,
+  BOILERPLATE_VALUE,
+  BOILERPLATE_MOBILE,
   UNRELATED,
   withReferral,
 };

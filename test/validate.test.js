@@ -3,7 +3,9 @@ const assert = require('node:assert');
 const { loadAppsScript, host } = require('./load');
 const fx = require('./fixtures');
 
-const app = loadAppsScript(['text.gs', 'transforms.gs', 'extract.gs', 'validate.gs']);
+// config.gs is loaded because buildPayload normalises _meta.from through
+// extractEmailAddress, which lives there.
+const app = loadAppsScript(['config.gs', 'text.gs', 'transforms.gs', 'extract.gs', 'validate.gs']);
 
 const CONTEXT = {
   messageId: 'msg-123',
@@ -69,6 +71,17 @@ test('buildPayload attaches complete metadata', () => {
   assert.strictEqual(payload._meta.extractor_version, app.EXTRACTOR_VERSION);
   assert.strictEqual(payload._meta.complete, true);
   assert.deepStrictEqual(host(payload._meta.missing_fields), []);
+});
+
+test('_meta.from is the bare address, not the raw header', () => {
+  // The data contract specifies 'sender@example.com'. A Zap filtering on the
+  // sender should not have to parse a display name out of it.
+  const payload = app.buildPayload(app.extractFields(fx.COMPLETE), {
+    messageId: 'msg-123',
+    from: 'Tops Ortho <bookings@example.com>',
+    receivedAt: '2026-09-01T04:31:00.000Z',
+  });
+  assert.strictEqual(payload._meta.from, 'bookings@example.com');
 });
 
 test('buildPayload reports incompleteness in metadata', () => {

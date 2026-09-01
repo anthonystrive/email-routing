@@ -29,6 +29,20 @@ function getHookUrl() {
   return getScriptProperty('ZAPIER_HOOK_URL');
 }
 
+/**
+ * Where the daily summary is sent.
+ *
+ * A script property rather than Session.getEffectiveUser().getEmail(), which
+ * needs the userinfo.email scope. appsscript.json declares an explicit
+ * oauthScopes array, which is authoritative — Apps Script does not top it up
+ * — so that call returns '' and sendEmail then throws, meaning the summary
+ * never arrives and nobody finds out. Widening the grant to read the account
+ * identity is a worse trade than naming the recipient once at setup.
+ */
+function getSummaryRecipient() {
+  return getScriptProperty('SUMMARY_TO');
+}
+
 function getAllowlist() {
   return getScriptProperty('SENDER_ALLOWLIST')
     .split(',')

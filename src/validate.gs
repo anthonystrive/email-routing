@@ -48,7 +48,10 @@ function buildPayload(record, context) {
 
   payload._meta = {
     message_id: context.messageId,
-    from: context.from,
+    // The bare address, not the raw header. The data contract specifies
+    // 'sender@example.com', and a downstream Zap filtering on the sender
+    // should not have to parse 'Tops Ortho <sender@example.com>' itself.
+    from: extractEmailAddress(context.from),
     received_at: context.receivedAt,
     extractor_version: EXTRACTOR_VERSION,
     complete: assessment.complete,

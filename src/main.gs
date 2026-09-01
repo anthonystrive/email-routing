@@ -1,32 +1,38 @@
 /**
- * Trigger entry point. Runs every minute.
+ * Outcome labels from least to most serious.
  *
- * The script lock prevents a slow run from overlapping the next one and
- * delivering the same message twice — labels are only applied at the end of
- * processing, so an overlapping run would see the message as unprocessed.
+ * Built inside the function, not at load time. A top-level `LABELS.ignored`
+ * here would be dereferenced when this file is evaluated, which only works
+ * while config.gs happens to sort before main.gs — and Apps Script's file
+ * order is not version-controlled. Resolving it at call time removes the
+ * dependency on load order entirely.
  */
-var OUTCOME_SEVERITY = {};
-OUTCOME_SEVERITY[LABELS.ignored] = 0;
-OUTCOME_SEVERITY[LABELS.processed] = 1;
-OUTCOME_SEVERITY[LABELS.partial] = 2;
-OUTCOME_SEVERITY[LABELS.failed] = 3;
+function outcomeSeverity() {
+  return [LABELS.ignored, LABELS.processed, LABELS.partial, LABELS.failed];
+}
 
 /** The more serious of two outcome labels, so one bad message marks the thread. */
 function worseOutcome(a, b) {
   if (!a) return b;
   if (!b) return a;
-  return OUTCOME_SEVERITY[a] >= OUTCOME_SEVERITY[b] ? a : b;
+  var order = outcomeSeverity();
+  return order.indexOf(a) >= order.indexOf(b) ? a : b;
 }
 
 /**
  * Trigger entry point. Runs every minute.
  *
- * The script lock prevents a slow run from overlapping the next one and
- * delivering the same message twice.
+ * The script lock keeps a slow run from overlapping the next one, but it is
+ * not what guarantees single delivery: the execution time limit is a hard
+ * kill that does not run `finally`, so a timeout mid-batch would otherwise
+ * redeliver everything already sent. The delivered-message set in dedupe.gs
+ * is written the instant each POST succeeds, and that is what makes a second
+ * delivery impossible.
  *
  * Labels are applied per thread, after every message in that thread has been
- * processed — see the note above on why labelling mid-thread can silently
- * lose a booking.
+ * processed. They are human-visible status only — a thread label cannot be
+ * the idempotency key, because Gmail groups these same-subject bookings into
+ * one conversation and the label would hide every booking after the first.
  */
 function processInbox() {
   var lock = LockService.getScriptLock();
@@ -37,6 +43,7 @@ function processInbox() {
 
   try {
     ensureLabels();
+    pruneDelivered();
     var hookUrl = getHookUrl();
     var allowlist = getAllowlist();
     var candidates = findCandidates(10);
@@ -71,25 +78,28 @@ function processInbox() {
       try {
         applyLabel(byThread[id].thread, byThread[id].label);
       } catch (err) {
-        // An unlabelled thread is reprocessed next tick and its records
-        // delivered a second time, so failing to label is worth shouting
-        // about — but only this thread is affected.
+        // An unlabelled thread loses its human-visible status and will be
+        // re-enumerated next tick, but its delivered messages are already in
+        // the delivered set and will not be sent again. Counting it as an
+        // unexpected failure is what makes it alert rather than sit in a log
+        // nobody reads.
         console.error('Failed to label thread ' + id
           + ' as ' + byThread[id].label + ': ' + err);
+        unexpectedFailures++;
       }
     });
 
-    // Labels are applied by this point, so nothing will be re-delivered.
-    // But an unexpected exception means a bug, not a bad document, and
-    // swallowing it would cost us Apps Script's own failed-trigger email to
-    // the owner — the only alert that does not require someone to go and
-    // read Cloud Logging. A systemic fault would otherwise mark every
-    // booking pdf-failed in silence, and pdf-failed threads are never
-    // retried.
+    // Nothing will be re-delivered — deliveries are recorded per message as
+    // they succeed. But an unexpected exception means a bug, not a bad
+    // document, and swallowing it would cost us Apps Script's own
+    // failed-trigger email to the owner — the only alert that does not
+    // require someone to go and read Cloud Logging. A systemic fault would
+    // otherwise mark every booking pdf-failed in silence, and pdf-failed
+    // threads are never retried.
     if (unexpectedFailures > 0) {
       throw new Error(unexpectedFailures + ' message(s) failed unexpectedly this run; '
-        + 'see the preceding log lines. Threads have been labelled, so nothing '
-        + 'will be re-delivered.');
+        + 'see the preceding log lines. Delivered messages are recorded, so '
+        + 'nothing will be re-delivered.');
     }
   } finally {
     lock.releaseLock();
@@ -102,6 +112,12 @@ function processInbox() {
  * label must reflect all of them.
  */
 function processOne(candidate, hookUrl, allowlist) {
+  if (hasDelivered(candidate.messageId)) {
+    // Already delivered on an earlier run whose labelling did not complete.
+    // Re-labelling is safe and idempotent; re-delivering is not.
+    return LABELS.processed;
+  }
+
   if (!isAllowedSender(candidate.from, allowlist)) {
     console.log('Ignoring message from unlisted sender: ' + candidate.from);
     return LABELS.ignored;
@@ -143,6 +159,11 @@ function processOne(candidate, hookUrl, allowlist) {
     return LABELS.failed;
   }
 
+  // Recorded the instant delivery succeeds, before anything that could throw
+  // or time out. Everything after this point is labelling and logging, none
+  // of which is allowed to cost a second POST.
+  markDelivered(candidate.messageId);
+
   if (assessment.complete) {
     return LABELS.processed;
   }
@@ -153,22 +174,46 @@ function processOne(candidate, hookUrl, allowlist) {
 }
 
 /**
- * Processes a single message on demand. Run this from the Apps Script editor
- * during setup, with ZAPIER_HOOK_URL pointed at a request-capture endpoint
- * rather than the live Zap.
+ * Processes one thread on demand. Run this from the Apps Script editor during
+ * setup, with ZAPIER_HOOK_URL pointed at a request-capture endpoint rather
+ * than the live Zap.
+ *
+ * findCandidates bounds THREADS, not messages, so a single thread can yield
+ * several candidates. Every one of them is processed and the worst outcome
+ * applied once — processing only the first would label the thread and make
+ * its remaining messages invisible to every later run.
  */
 function runOnce() {
   ensureLabels();
+  pruneDelivered();
   var candidates = findCandidates(1);
   if (candidates.length === 0) {
     console.log('No candidate messages found.');
     return;
   }
-  console.log('Processing message ' + candidates[0].messageId
-    + ' from ' + candidates[0].from);
-  var outcome = processOne(candidates[0], getHookUrl(), getAllowlist());
-  applyLabel(candidates[0].thread, outcome);
-  console.log('Outcome: ' + outcome);
+
+  var hookUrl = getHookUrl();
+  var allowlist = getAllowlist();
+  console.log('Processing ' + candidates.length + ' candidate message(s) '
+    + 'from one thread.');
+
+  var byThread = {};
+  candidates.forEach(function (candidate) {
+    console.log('Processing message ' + candidate.messageId);
+    var outcome = processOne(candidate, hookUrl, allowlist);
+    console.log('Outcome for ' + candidate.messageId + ': ' + outcome);
+    var id = candidate.thread.getId();
+    if (!byThread[id]) {
+      byThread[id] = { thread: candidate.thread, label: outcome };
+    } else {
+      byThread[id].label = worseOutcome(byThread[id].label, outcome);
+    }
+  });
+
+  Object.keys(byThread).forEach(function (id) {
+    applyLabel(byThread[id].thread, byThread[id].label);
+    console.log('Labelled thread ' + id + ' as ' + byThread[id].label + '.');
+  });
 }
 
 /**

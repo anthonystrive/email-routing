@@ -3,27 +3,41 @@ function buildSummaryQuery(labelName) {
 }
 
 /**
- * Emails the account owner a count of yesterday's failures and partials.
+ * Emails a count of yesterday's failures, partials and ignored messages.
  *
- * Sends nothing when both counts are zero — a daily "all clear" trains you
- * to ignore the message, which defeats the purpose.
+ * Sends nothing when all three counts are zero — a daily "all clear" trains
+ * you to ignore the message, which defeats the purpose.
+ *
+ * Ignored is counted because it is the one outcome that looks like silence.
+ * A wrong allowlist entry, or a change in the sender's From format, labels
+ * every booking pdf-ignored — and a summary counting only failed and partial
+ * would stay quiet at exactly the moment the system is dropping everything.
  */
 function sendDailySummary() {
   var failed = GmailApp.search(buildSummaryQuery(LABELS.failed)).length;
   var partial = GmailApp.search(buildSummaryQuery(LABELS.partial)).length;
+  var ignored = GmailApp.search(buildSummaryQuery(LABELS.ignored)).length;
 
-  if (failed === 0 && partial === 0) return;
+  if (failed === 0 && partial === 0 && ignored === 0) return;
 
-  var owner = Session.getEffectiveUser().getEmail();
+  var recipient = getSummaryRecipient();
   var body = 'In the last 24 hours:\n\n'
     + '  Failed:  ' + failed + '\n'
-    + '  Partial: ' + partial + '\n\n'
+    + '  Partial: ' + partial + '\n'
+    + '  Ignored: ' + ignored + '\n\n'
     + 'Search Gmail for label:' + LABELS.failed
-    + ' or label:' + LABELS.partial + ' to review them.\n\n'
+    + ', label:' + LABELS.partial
+    + ' or label:' + LABELS.ignored + ' to review them.\n\n'
     + 'A rising partial count usually means the source template changed and '
-    + 'a label in FIELDS no longer matches.';
+    + 'a label in FIELDS no longer matches.\n\n'
+    + 'A non-zero ignored count usually means the sender address or its From '
+    + 'format changed, so SENDER_ALLOWLIST no longer matches — those bookings '
+    + 'were not delivered anywhere.';
 
-  GmailApp.sendEmail(owner, 'PDF routing: ' + failed + ' failed, ' + partial + ' partial', body);
+  GmailApp.sendEmail(recipient,
+    'PDF routing: ' + failed + ' failed, ' + partial + ' partial, '
+      + ignored + ' ignored',
+    body);
 }
 
 function installSummaryTrigger() {
