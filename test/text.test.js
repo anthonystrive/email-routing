@@ -16,6 +16,24 @@ test('collapses non-breaking space to ascii space', () => {
   assert.strictEqual(app.normaliseText('Dr. Sample'), 'Dr. Sample');
 });
 
+test('collapses a zero-width space to an ascii space', () => {
+  // U+200B is not folded by NFKC and is invisible in every log and editor, so
+  // one sitting inside a label breaks the field match with nothing to see.
+  assert.strictEqual(app.normaliseText('Patient​name'), 'Patient name');
+});
+
+test('collapses a byte order mark to an ascii space', () => {
+  // U+FEFF, same story: invisible, unfolded by NFKC, silently fatal to a match.
+  assert.strictEqual(app.normaliseText('Patient﻿name'), 'Patient name');
+});
+
+test('a zero-width space inside a label is trimmed away by toLines', () => {
+  assert.deepStrictEqual(
+    host(app.toLines('﻿Patient first name:\nAlex​')),
+    ['Patient first name:', 'Alex'],
+  );
+});
+
 test('normalises CRLF and CR line endings to LF', () => {
   assert.strictEqual(app.normaliseText('a\r\nb\rc'), 'a\nb\nc');
 });

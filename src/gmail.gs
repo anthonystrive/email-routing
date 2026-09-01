@@ -1,31 +1,26 @@
 /**
- * Excludes only the labels a human triages, NOT the successful ones.
+ * No label exclusions at all. This is deliberate — do not add one back.
  *
  * Gmail labels are per THREAD, and these bookings share a subject and sender,
- * which is exactly what Gmail groups into one conversation. Excluding
- * pdf-processed or pdf-partial would therefore hide every later booking in a
- * thread whose first booking already succeeded — enumerated never, processed
- * never, counted never. That is a silent total loss, so those two exclusions
- * are deliberately absent. Redelivery is prevented instead by the
- * delivered-message set in dedupe.gs, which is keyed per message.
+ * which is exactly what Gmail groups into one conversation. ANY `-label:`
+ * term therefore hides every later booking in a thread that already carries
+ * that label — enumerated never, processed never, counted never. That is
+ * silent total loss, and it applies just as much to the terminal labels
+ * (pdf-failed, pdf-ignored) as to the successful ones: one ignored booking
+ * would permanently mute the conversation it arrived in. "Restoring" any of
+ * these exclusions reintroduces exactly that silent loss.
  *
- * The cost is that an already-processed thread re-enumerates every tick: one
- * script-property lookup per message, and no PDF conversion, because
- * processOne returns before any work as soon as the message is known
- * delivered.
- *
- * pdf-failed and pdf-ignored stay excluded. Those are terminal states a human
- * triages — retrying them automatically every minute would just burn quota.
+ * The exclusion is the per-message store in dedupe.gs instead. It is keyed by
+ * Gmail message id, so it can never hide a sibling message, and findCandidates
+ * consults it before touching an attachment, which keeps the per-tick cost of
+ * an already-processed thread to one script-property lookup per message.
  *
  * The time bound stops the job re-examining the whole mailbox once it has
  * been running for months; nothing older than a week is worth retrying
  * automatically.
  */
 function buildSearchQuery() {
-  return 'has:attachment filename:pdf'
-    + ' -label:' + LABELS.failed
-    + ' -label:' + LABELS.ignored
-    + ' newer_than:7d';
+  return 'has:attachment filename:pdf newer_than:7d';
 }
 
 /**
@@ -60,13 +55,21 @@ function findCandidates(maxThreads) {
 
   threads.forEach(function (thread) {
     thread.getMessages().forEach(function (message) {
+      // Order matters — do not reorder these two lines. The query no longer
+      // excludes any label, so every already-processed thread re-enumerates
+      // every tick. getId() is free on a message already fetched with the
+      // thread; getAttachments() is a separate attachment fetch billed against
+      // the daily Gmail quota. Skipping seen messages FIRST is what keeps the
+      // per-tick cost flat instead of growing with the mailbox.
+      var messageId = message.getId();
+      if (getSeenOutcome(messageId) !== null) return;
       var attachment = firstPdfAttachment(message);
       if (!attachment) return;
       candidates.push({
         thread: thread,
         attachment: attachment,
         from: message.getFrom(),
-        messageId: message.getId(),
+        messageId: messageId,
         receivedAt: message.getDate().toISOString()
       });
     });

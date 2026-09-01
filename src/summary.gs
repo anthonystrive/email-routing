@@ -14,13 +14,19 @@ function buildSummaryQuery(labelName) {
  * would stay quiet at exactly the moment the system is dropping everything.
  */
 function sendDailySummary() {
+  // Resolved first, before the searches and before the all-clear early
+  // return. A missing SUMMARY_TO throws on the very first summary run, when
+  // someone is still watching the deploy — rather than lying dormant until
+  // the first day something actually needs reporting, which is the one day
+  // the summary must not fail.
+  var recipient = getSummaryRecipient();
+
   var failed = GmailApp.search(buildSummaryQuery(LABELS.failed)).length;
   var partial = GmailApp.search(buildSummaryQuery(LABELS.partial)).length;
   var ignored = GmailApp.search(buildSummaryQuery(LABELS.ignored)).length;
 
   if (failed === 0 && partial === 0 && ignored === 0) return;
 
-  var recipient = getSummaryRecipient();
   var body = 'In the last 24 hours:\n\n'
     + '  Failed:  ' + failed + '\n'
     + '  Partial: ' + partial + '\n'

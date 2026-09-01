@@ -2184,6 +2184,31 @@ In the editor: **Project Settings** → **Script Properties** → add:
 |---|---|
 | `ZAPIER_HOOK_URL` | the request-capture URL, **not** the live Zap yet |
 | `SENDER_ALLOWLIST` | e.g. `bookings@clinic.com.au,@clinic.com.au` |
+| `SUMMARY_TO` | the address the daily summary is emailed to |
+
+All three are required. Each accessor throws if its property is missing, so a
+missing value fails loudly in the execution log rather than silently
+delivering nowhere, accepting every sender, or never sending a summary.
+
+- [ ] **Step 7b: Deal with the existing backlog before the trigger runs**
+
+The search window is seven days and the seen store starts empty, so the first
+unattended run will process **every** booking PDF already sitting in the
+mailbox from an allowlisted sender within that window — and deliver them all
+to the Zap.
+
+If that is not what you want, run **`seedBacklog`** from the editor's function
+dropdown now, while the trigger is still off. It records every message
+currently matching the search as already seen, with outcome `pdf-ignored`, and
+delivers nothing. It logs how many it seeded.
+
+**Do not suppress the backlog by labelling threads.** Gmail labels are per
+thread and these bookings share a subject and sender, so they land in one
+conversation: labelling a thread `pdf-ignored` or `pdf-failed` would suppress
+every *future* booking in that conversation too, silently and permanently. The
+search query no longer excludes any label for exactly that reason. `seedBacklog`
+is message-scoped, so the next booking to arrive in one of those same threads
+is processed normally.
 
 - [ ] **Step 8: Send a test email**
 
@@ -2230,6 +2255,21 @@ minute.
 
 Send a third test email and do nothing. Within two minutes, confirm the Zap
 received it and the Gmail thread carries `pdf-processed` (or `pdf-partial`).
+
+- [ ] **Step 13b: Verify two bookings in one thread both arrive**
+
+This is the single most important live check, because the failure it guards
+against is silent. Send two booking emails **with the same subject, from the
+same sender**, a minute or so apart — the shape Gmail groups into one
+conversation.
+
+Confirm the Zap received **both** records. Then look at the mailbox: if Gmail
+did group them into one thread, that is exactly the case that would have lost
+the second booking under thread-level tracking, with no error anywhere. The
+delivered-message store is what makes both arrive.
+
+If only one record arrives, stop and report it — do not leave the trigger
+running.
 
 - [ ] **Step 14: Verify the allowlist rejects an outsider**
 

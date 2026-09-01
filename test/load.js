@@ -9,8 +9,13 @@ const SRC = path.join(__dirname, '..', 'src');
  * how Apps Script actually runs them: one global scope, no module system.
  * Apps Script globals used at call time (UrlFetchApp, GmailApp, Drive) are
  * deliberately absent — pure modules must not touch them.
+ *
+ * `extras` adds context globals for the few modules that genuinely need one
+ * Apps Script service to be testable at all — dedupe.gs and PropertiesService.
+ * It defaults to none, so every existing caller keeps the bare context and the
+ * "pure modules must not touch them" rule stays enforced for them.
  */
-function loadAppsScript(files) {
+function loadAppsScript(files, extras) {
   const context = {
     console,
     JSON,
@@ -23,6 +28,7 @@ function loadAppsScript(files) {
     RegExp,
     Error,
     isNaN,
+    ...(extras || {}),
   };
   vm.createContext(context);
   for (const file of files) {

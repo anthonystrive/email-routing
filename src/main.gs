@@ -25,14 +25,15 @@ function worseOutcome(a, b) {
  * The script lock keeps a slow run from overlapping the next one, but it is
  * not what guarantees single delivery: the execution time limit is a hard
  * kill that does not run `finally`, so a timeout mid-batch would otherwise
- * redeliver everything already sent. The delivered-message set in dedupe.gs
- * is written the instant each POST succeeds, and that is what makes a second
- * delivery impossible.
+ * redeliver everything already sent. The seen store in dedupe.gs is written
+ * the instant each outcome is final, and that is what makes a second delivery
+ * impossible.
  *
  * Labels are applied per thread, after every message in that thread has been
- * processed. They are human-visible status only — a thread label cannot be
- * the idempotency key, because Gmail groups these same-subject bookings into
- * one conversation and the label would hide every booking after the first.
+ * processed, and only for threads that actually had work done this run. They
+ * are human-visible status only — a thread label cannot be the idempotency
+ * key, because Gmail groups these same-subject bookings into one conversation
+ * and the label would hide every booking after the first.
  */
 function processInbox() {
   var lock = LockService.getScriptLock();
@@ -43,7 +44,7 @@ function processInbox() {
 
   try {
     ensureLabels();
-    pruneDelivered();
+    pruneSeen();
     var hookUrl = getHookUrl();
     var allowlist = getAllowlist();
     var candidates = findCandidates(10);
@@ -55,50 +56,56 @@ function processInbox() {
     var byThread = {};
     var unexpectedFailures = 0;
     candidates.forEach(function (candidate) {
+      // Whether this message earned its outcome now, or merely had one read
+      // back out of the store. A thread whose messages were all already seen
+      // must not be relabelled: every tick would otherwise re-add labels that
+      // are already there, once per thread, forever.
+      var didWork = getSeenOutcome(candidate.messageId) === null;
       var outcome;
       try {
         outcome = processOne(candidate, hookUrl, allowlist);
       } catch (err) {
         // processOne guards its own known failure modes; this catches the
         // unexpected ones so a single bad message cannot abandon the whole
-        // batch mid-flight, leaving delivered messages unlabelled.
+        // batch mid-flight, leaving processed messages unlabelled.
         console.error('Unexpected failure processing ' + candidate.messageId + ': ' + err);
         unexpectedFailures++;
         outcome = LABELS.failed;
+        didWork = true;
       }
       var id = candidate.thread.getId();
       if (!byThread[id]) {
-        byThread[id] = { thread: candidate.thread, label: outcome };
+        byThread[id] = { thread: candidate.thread, label: outcome, worked: didWork };
       } else {
         byThread[id].label = worseOutcome(byThread[id].label, outcome);
+        byThread[id].worked = byThread[id].worked || didWork;
       }
     });
 
     Object.keys(byThread).forEach(function (id) {
+      if (!byThread[id].worked) return;
       try {
         applyLabel(byThread[id].thread, byThread[id].label);
       } catch (err) {
-        // An unlabelled thread loses its human-visible status and will be
-        // re-enumerated next tick, but its delivered messages are already in
-        // the delivered set and will not be sent again. Counting it as an
-        // unexpected failure is what makes it alert rather than sit in a log
-        // nobody reads.
+        // An unlabelled thread loses its human-visible status, but its
+        // messages are already recorded in the seen store and will not be
+        // reprocessed. Counting it as an unexpected failure is what makes it
+        // alert rather than sit in a log nobody reads.
         console.error('Failed to label thread ' + id
           + ' as ' + byThread[id].label + ': ' + err);
         unexpectedFailures++;
       }
     });
 
-    // Nothing will be re-delivered — deliveries are recorded per message as
-    // they succeed. But an unexpected exception means a bug, not a bad
-    // document, and swallowing it would cost us Apps Script's own
+    // Nothing will be re-delivered — outcomes are recorded per message as
+    // soon as they are final. But an unexpected exception means a bug, not a
+    // bad document, and swallowing it would cost us Apps Script's own
     // failed-trigger email to the owner — the only alert that does not
     // require someone to go and read Cloud Logging. A systemic fault would
-    // otherwise mark every booking pdf-failed in silence, and pdf-failed
-    // threads are never retried.
+    // otherwise mark every booking pdf-failed in silence.
     if (unexpectedFailures > 0) {
       throw new Error(unexpectedFailures + ' message(s) failed unexpectedly this run; '
-        + 'see the preceding log lines. Delivered messages are recorded, so '
+        + 'see the preceding log lines. Completed messages are recorded, so '
         + 'nothing will be re-delivered.');
     }
   } finally {
@@ -112,14 +119,21 @@ function processInbox() {
  * label must reflect all of them.
  */
 function processOne(candidate, hookUrl, allowlist) {
-  if (hasDelivered(candidate.messageId)) {
-    // Already delivered on an earlier run whose labelling did not complete.
-    // Re-labelling is safe and idempotent; re-delivering is not.
-    return LABELS.processed;
+  var seen = getSeenOutcome(candidate.messageId);
+  if (seen !== null) {
+    // Already reached a final outcome on an earlier run whose labelling did
+    // not complete. Return the outcome it actually earned — assuming success
+    // here would relabel a failed or ignored message pdf-processed and hide a
+    // real problem.
+    return seen;
   }
 
   if (!isAllowedSender(candidate.from, allowlist)) {
+    // Terminal, and recorded per message. Recording is what keeps this
+    // decision message-scoped: the alternative — leaning on a thread label —
+    // would mute every future booking in this conversation.
     console.log('Ignoring message from unlisted sender: ' + candidate.from);
+    markSeen(candidate.messageId, LABELS.ignored);
     return LABELS.ignored;
   }
 
@@ -127,7 +141,11 @@ function processOne(candidate, hookUrl, allowlist) {
   try {
     text = pdfToText(candidate.attachment.copyBlob());
   } catch (err) {
+    // Terminal: a document this converter cannot read will not read on the
+    // next tick either, and retrying it every minute burns quota. Recorded so
+    // the retry stops at this message, not this conversation.
     console.error('PDF conversion failed for ' + candidate.messageId + ': ' + err);
+    markSeen(candidate.messageId, LABELS.failed);
     return LABELS.failed;
   }
 
@@ -146,6 +164,7 @@ function processOne(candidate, hookUrl, allowlist) {
       + ' (extracted ' + text.length + ' characters, expected title '
       + (text.indexOf('New Patient Booking Activation') !== -1 ? 'present' : 'absent')
       + '). Open the message in Gmail to inspect the document.');
+    markSeen(candidate.messageId, LABELS.failed);
     return LABELS.failed;
   }
 
@@ -153,24 +172,29 @@ function processOne(candidate, hookUrl, allowlist) {
   var result = deliverPayload(payload, hookUrl);
 
   if (!result.ok) {
+    // Terminal after deliverPayload's own retries: this is a human's problem
+    // (a dead hook URL, a rejected payload), not something another tick will
+    // fix. Recorded so it stays a message-scoped failure and its thread keeps
+    // accepting later bookings.
     console.error('Delivery failed for ' + candidate.messageId
       + ' after ' + result.attempts + ' attempt(s), status ' + result.status
       + (result.error ? ', error: ' + result.error : ''));
+    markSeen(candidate.messageId, LABELS.failed);
     return LABELS.failed;
   }
+
+  var outcome = assessment.complete ? LABELS.processed : LABELS.partial;
 
   // Recorded the instant delivery succeeds, before anything that could throw
   // or time out. Everything after this point is labelling and logging, none
   // of which is allowed to cost a second POST.
-  markDelivered(candidate.messageId);
+  markSeen(candidate.messageId, outcome);
 
-  if (assessment.complete) {
-    return LABELS.processed;
+  if (outcome === LABELS.partial) {
+    console.log('Delivered partial record for ' + candidate.messageId
+      + '; missing: ' + assessment.missing_fields.join(', '));
   }
-
-  console.log('Delivered partial record for ' + candidate.messageId
-    + '; missing: ' + assessment.missing_fields.join(', '));
-  return LABELS.partial;
+  return outcome;
 }
 
 /**
@@ -185,7 +209,7 @@ function processOne(candidate, hookUrl, allowlist) {
  */
 function runOnce() {
   ensureLabels();
-  pruneDelivered();
+  pruneSeen();
   var candidates = findCandidates(1);
   if (candidates.length === 0) {
     console.log('No candidate messages found.');
@@ -200,20 +224,62 @@ function runOnce() {
   var byThread = {};
   candidates.forEach(function (candidate) {
     console.log('Processing message ' + candidate.messageId);
-    var outcome = processOne(candidate, hookUrl, allowlist);
+    var didWork = getSeenOutcome(candidate.messageId) === null;
+    var outcome;
+    try {
+      outcome = processOne(candidate, hookUrl, allowlist);
+    } catch (err) {
+      // Mirrors processInbox: without this, one unexpected throw escapes
+      // before the labelling loop below and the thread is left with no
+      // human-visible status at all.
+      console.error('Unexpected failure processing ' + candidate.messageId + ': ' + err);
+      outcome = LABELS.failed;
+      didWork = true;
+    }
     console.log('Outcome for ' + candidate.messageId + ': ' + outcome);
     var id = candidate.thread.getId();
     if (!byThread[id]) {
-      byThread[id] = { thread: candidate.thread, label: outcome };
+      byThread[id] = { thread: candidate.thread, label: outcome, worked: didWork };
     } else {
       byThread[id].label = worseOutcome(byThread[id].label, outcome);
+      byThread[id].worked = byThread[id].worked || didWork;
     }
   });
 
   Object.keys(byThread).forEach(function (id) {
+    if (!byThread[id].worked) return;
     applyLabel(byThread[id].thread, byThread[id].label);
     console.log('Labelled thread ' + id + ' as ' + byThread[id].label + '.');
   });
+}
+
+/**
+ * Suppresses a pre-existing backlog, for use once at deployment.
+ *
+ * Marks every currently-matching message as seen with outcome pdf-ignored and
+ * delivers nothing. Run this with the trigger still off if the mailbox already
+ * holds bookings within the seven-day window that must NOT be sent to the Zap.
+ *
+ * The old advice — label those threads pdf-ignored so the query skips them —
+ * is what this replaces. Labels are per thread, so it silently suppressed
+ * every FUTURE booking that landed in the same conversation. Seeding the
+ * per-message store suppresses exactly the messages that exist right now;
+ * anything that arrives afterwards is processed normally.
+ */
+function seedBacklog() {
+  var seeded = 0;
+  var threads = GmailApp.search(buildSearchQuery(), 0, 500);
+  threads.forEach(function (thread) {
+    thread.getMessages().forEach(function (message) {
+      var messageId = message.getId();
+      if (getSeenOutcome(messageId) !== null) return;
+      markSeen(messageId, LABELS.ignored);
+      seeded++;
+    });
+  });
+  console.log('Seeded ' + seeded + ' backlog message(s) as '
+    + LABELS.ignored + '. Nothing was delivered. Messages arriving from now '
+    + 'on are processed normally, including in these same threads.');
 }
 
 /**
