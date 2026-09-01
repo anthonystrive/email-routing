@@ -32,4 +32,19 @@ function loadAppsScript(files) {
   return context;
 }
 
-module.exports = { loadAppsScript };
+/**
+ * Rehydrates a value produced inside the VM into host-realm structures.
+ *
+ * `vm.createContext` creates a new realm with its own intrinsics, so an array
+ * built inside a loaded .gs file has a different `Array.prototype` than one
+ * written in a test file. `assert.deepStrictEqual` compares prototypes with
+ * `===`, so it fails on values that are otherwise identical. Wrap any array
+ * or object crossing that boundary before a deep comparison.
+ *
+ * `assert.strictEqual` on primitives is unaffected and needs no wrapping.
+ */
+function host(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+module.exports = { loadAppsScript, host };
