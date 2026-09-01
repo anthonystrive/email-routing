@@ -46,6 +46,7 @@ function processInbox() {
     }
 
     var byThread = {};
+    var unexpectedFailures = 0;
     candidates.forEach(function (candidate) {
       var outcome;
       try {
@@ -55,6 +56,7 @@ function processInbox() {
         // unexpected ones so a single bad message cannot abandon the whole
         // batch mid-flight, leaving delivered messages unlabelled.
         console.error('Unexpected failure processing ' + candidate.messageId + ': ' + err);
+        unexpectedFailures++;
         outcome = LABELS.failed;
       }
       var id = candidate.thread.getId();
@@ -76,6 +78,19 @@ function processInbox() {
           + ' as ' + byThread[id].label + ': ' + err);
       }
     });
+
+    // Labels are applied by this point, so nothing will be re-delivered.
+    // But an unexpected exception means a bug, not a bad document, and
+    // swallowing it would cost us Apps Script's own failed-trigger email to
+    // the owner — the only alert that does not require someone to go and
+    // read Cloud Logging. A systemic fault would otherwise mark every
+    // booking pdf-failed in silence, and pdf-failed threads are never
+    // retried.
+    if (unexpectedFailures > 0) {
+      throw new Error(unexpectedFailures + ' message(s) failed unexpectedly this run; '
+        + 'see the preceding log lines. Threads have been labelled, so nothing '
+        + 'will be re-delivered.');
+    }
   } finally {
     lock.releaseLock();
   }
