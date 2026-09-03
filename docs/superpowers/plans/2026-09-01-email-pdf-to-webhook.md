@@ -2114,20 +2114,44 @@ expected place to find it, and the fix is confined to `extract.gs`.
 - [ ] **Step 1: Install clasp and authenticate**
 
 ```bash
-npm install -g @google/clasp
-clasp login
+npx --yes @google/clasp@2.4.2 login
 ```
 
-This opens a browser. Sign in as the Google account that will own the script.
+This opens a browser. Sign in as the Google account that will own the script,
+and check the account picker carefully — whatever you authorise becomes the
+owner of the script and of the mailbox it reads.
+
+`npx` is used rather than `npm install -g` because npm's global directory is
+root-owned on a default macOS install, so a global install fails on
+permissions. The version is pinned so a future redeploy cannot pick up a
+different clasp.
+
+Confirm the right account with `npx --yes @google/clasp@2.4.2 login --status`
+before continuing.
+
+- [ ] **Step 1b: Enable the Apps Script API for the account**
+
+Visit https://script.google.com/home/usersettings signed in as the script's
+owner and switch **Google Apps Script API** to **On**. Without it, `clasp
+create` fails with "User has not enabled the Apps Script API".
+
+This is a per-account setting, not per-project, and it exists so CLI tools can
+create and modify scripts on your behalf. Allow a minute or two to propagate.
 
 - [ ] **Step 2: Create the Apps Script project**
 
 ```bash
-clasp create --type standalone --title "Email PDF Routing" --rootDir ./src
+npx --yes @google/clasp@2.4.2 create --type standalone --title "Email PDF Routing" --rootDir ./src
 ```
 
 `--rootDir ./src` tells clasp that `src/` is the script root, so files push as
 `text.gs`, `extract.gs` and so on rather than nested.
+
+**Then move the credential file:** clasp 2.4.2 writes `.clasp.json` into the
+`--rootDir` directory, but every later command looks for it in the working
+directory. Run `mv src/.clasp.json .clasp.json` or `push` fails with "No valid
+.clasp.json project file". The `rootDir` value inside it stays `./src` and is
+correct relative to the project root.
 
 - [ ] **Step 3: Create `.claspignore`**
 
@@ -2153,8 +2177,8 @@ If it does appear, stop and fix `.gitignore` before continuing.
 - [ ] **Step 5: Push the code**
 
 ```bash
-clasp push
-clasp open
+npx --yes @google/clasp@2.4.2 push
+npx --yes @google/clasp@2.4.2 open
 ```
 
 `clasp open` opens the script in the browser for the remaining steps.
