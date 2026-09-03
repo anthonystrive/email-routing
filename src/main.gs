@@ -320,6 +320,50 @@ function seedBacklog() {
 }
 
 /**
+ * Explains what the search sees and why a message was or was not picked up.
+ *
+ * Answers the "there is definitely a new email but nothing was processed"
+ * question without printing any content: for every matching thread it reports
+ * each message's id, whether it carries a PDF, and whether it is already
+ * recorded as handled. Reads nothing it does not need and changes nothing.
+ */
+function diagnose() {
+  console.log('Query    : ' + buildSearchQuery());
+
+  var threads = GmailApp.search(buildSearchQuery(), 0, 20);
+  console.log('Threads  : ' + threads.length + ' matching (showing up to 20)');
+  console.log('Note     : processInbox examines the 10 most recent; runOnce, 1.');
+
+  if (threads.length === 0) {
+    console.log('Nothing matched. Either no PDF arrived in the last 7 days, or '
+      + 'Gmail does not see the attachment as a .pdf file.');
+    return;
+  }
+
+  threads.forEach(function (thread, threadIndex) {
+    var messages = thread.getMessages();
+    console.log('--- thread ' + threadIndex + ': ' + messages.length
+      + ' message(s), labels: '
+      + (thread.getLabels().map(function (l) { return l.getName(); }).join(', ') || 'none')
+      + ' ---');
+
+    messages.forEach(function (message) {
+      var id = message.getId();
+      var seen = getSeenOutcome(id);
+      var attachment = firstPdfAttachment(message);
+      console.log('  ' + id
+        + '  pdf: ' + (attachment ? 'yes' : 'NO')
+        + '  seen: ' + (seen === null ? 'no — would be processed' : seen)
+        + '  from: ' + message.getFrom());
+    });
+  });
+
+  console.log('A message with pdf:yes and seen:no is what runOnce and the '
+    + 'trigger pick up. "seen" means it was already handled — delete its '
+    + 'seen:<id> script property to have it processed again.');
+}
+
+/**
  * Field keys whose extracted VALUE is safe to print during a dry run.
  *
  * These are the transformed and derived fields — the ones where extraction
