@@ -18,9 +18,19 @@ var ADDR_PATTERN = '[^\\s<>@,()"]+@[^\\s<>@,()"]+';
  * silently than loudly.
  */
 function getScriptProperty(name) {
+  if (!name) {
+    // Reached only when this helper is run directly from the editor, which is
+    // easy to do by accident: the Run dropdown lists the functions of whatever
+    // file is open, and this is the first one in config.gs.
+    throw new Error('getScriptProperty is an internal helper and takes an '
+      + 'argument — it is not meant to be run directly. Open main.gs and pick '
+      + 'one of: dryRun, runOnce, seedBacklog, installTrigger, '
+      + 'installSummaryTrigger.');
+  }
   var value = PropertiesService.getScriptProperties().getProperty(name);
   if (!value) {
-    throw new Error('Missing required script property: ' + name);
+    throw new Error('Missing required script property: ' + name
+      + '. Set it in Project Settings -> Script Properties.');
   }
   return value;
 }
