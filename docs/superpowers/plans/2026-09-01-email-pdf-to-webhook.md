@@ -2249,6 +2249,31 @@ why it is safe.
 From an allowlisted sender, email a real booking PDF to the mailbox. Wait for
 it to arrive. Do not install the trigger yet.
 
+- [ ] **Step 8b: Run `dryRun` first if the test booking is real patient data**
+
+`runOnce` delivers. If your first test message is a genuine booking, do not
+send it to a third-party capture endpoint such as webhook.site — those URLs
+are readable by anyone holding the link and the data persists on someone
+else's server.
+
+Run `dryRun` instead. It converts the PDF, extracts the fields and reports
+what it found to the execution log, then stops: it POSTs nothing, labels
+nothing, and does not record the message, so the real run still processes it
+afterwards. It does not read `ZAPIER_HOOK_URL`, so it works before that
+property is set.
+
+It prints values only for the transformed and derived fields — the two dates,
+the time, and the referral flags — because those are where extraction can be
+subtly wrong. Names and contact details report presence and length only, so
+the log never carries an identifiable record.
+
+**Check the two dates against the PDF.** They are day-first: `2/9/2026` is
+2 September, not 9 February. That is the one error that would look completely
+plausible downstream.
+
+If fields come back NULL that should not be, that is the template-drift case —
+the fix is confined to the `FIELDS` table in `src/extract.gs`.
+
 - [ ] **Step 9: Run `runOnce` and inspect the result**
 
 In the editor, select `runOnce` from the function dropdown and click **Run**.

@@ -320,6 +320,91 @@ function seedBacklog() {
 }
 
 /**
+ * Field keys whose extracted VALUE is safe to print during a dry run.
+ *
+ * These are the transformed and derived fields — the ones where extraction
+ * can be subtly wrong in a way presence alone would not reveal, above all
+ * whether a date was read day-first. None of them identifies a patient on
+ * its own. Every other field reports presence and length only, so a dry run
+ * never writes a name, contact detail or full record to the execution log.
+ */
+var DRY_RUN_SHOW_VALUES = [
+  'patient_date_of_birth',
+  'patient_appointment_date',
+  'patient_appointment_time',
+  'needs_referral_for',
+  'needs_opg',
+  'needs_lateral_ceph'
+];
+
+/**
+ * Extracts one message and reports what was found, WITHOUT delivering,
+ * labelling or recording it. Run by hand during setup to confirm that Drive's
+ * conversion produces the layout the extractor expects.
+ *
+ * Deliberately harmless: it POSTs nothing, so no patient data leaves the
+ * account, and it does not mark the message seen, so the real run will still
+ * process it afterwards. It does not read ZAPIER_HOOK_URL, so it works before
+ * that property is set.
+ */
+function dryRun() {
+  var allowlist = getAllowlist();
+  var candidates = findCandidates(1);
+
+  if (candidates.length === 0) {
+    console.log('No candidate messages found. Check the mailbox holds a PDF '
+      + 'from the last 7 days, and that it is not already recorded as seen.');
+    return;
+  }
+
+  var candidate = candidates[0];
+  console.log('Message  : ' + candidate.messageId);
+  console.log('From     : ' + candidate.from);
+  console.log('Allowed  : ' + isAllowedSender(candidate.from, allowlist)
+    + '   (allowlist: ' + allowlist.join(', ') + ')');
+
+  var text;
+  try {
+    text = pdfToText(candidate.attachment.copyBlob());
+  } catch (err) {
+    console.error('PDF conversion FAILED: ' + err);
+    return;
+  }
+
+  var lines = toLines(text);
+  console.log('Converted: ' + text.length + ' characters, '
+    + lines.length + ' non-empty lines');
+  console.log('Title    : '
+    + (text.indexOf('New Patient Booking Activation') !== -1 ? 'found' : 'NOT FOUND'));
+
+  var record = extractFields(text);
+  var assessment = assessExtraction(record);
+
+  console.log('--- fields ---');
+  FIELDS.forEach(function (field) {
+    var value = record[field.key];
+    var shown;
+    if (value === null || value === undefined) {
+      shown = 'NULL' + (field.optional ? ' (optional)' : '');
+    } else if (DRY_RUN_SHOW_VALUES.indexOf(field.key) !== -1) {
+      shown = String(value);
+    } else {
+      shown = 'present (' + String(value).length + ' chars)';
+    }
+    console.log('  ' + field.key + ': ' + shown);
+  });
+  console.log('  needs_opg: ' + record.needs_opg);
+  console.log('  needs_lateral_ceph: ' + record.needs_lateral_ceph);
+
+  console.log('--- assessment ---');
+  console.log('  complete: ' + assessment.complete);
+  console.log('  empty: ' + assessment.empty);
+  console.log('  missing: ' + (assessment.missing_fields.join(', ') || 'none'));
+  console.log('Nothing was delivered, labelled or recorded. '
+    + 'Check the two dates against the PDF: day-first, so 2/9/2026 is 2 September.');
+}
+
+/**
  * Installs the minute-by-minute trigger, removing any existing one first so
  * running this twice does not double the processing rate.
  *
