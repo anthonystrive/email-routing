@@ -39,8 +39,22 @@ fictional. Single page, single column,
 text layer present, no images, no form fields. Produced by **Tops Ortho**
 practice-management software, titled *New Patient Booking Activation*.
 
-Structure is a flat sequence of label/value line pairs at a consistent left
-margin. Ten fields, listed in the `FIELDS` table below.
+Structure is a flat sequence of label/value pairs at a consistent left margin.
+Ten fields, listed in the `FIELDS` table below.
+
+**In the PDF itself** every label sits on its own line with its value on the
+next. **After Drive's conversion that is not what arrives.** The converter
+merges some label/value pairs onto a single line (`Patient appointment date:
+24/9/2026`) and leaves others on two, according to their spacing in the
+source. Confirmed on a live document: of ten fields, three converted inline
+and seven did not.
+
+This matters more than it sounds. Fixtures written from the PDF's internal
+structure — which is what the original analysis of this file produced — contain
+only the two-line form, so an extractor that handles only that form passes
+every test and then returns null for the merged fields against real mail.
+`findValueForLabel` handles both, and `test/fixtures.js` carries a mixed
+fixture so the inline form stays covered.
 
 Known variability the single sample does not settle, to confirm before or
 during implementation:
@@ -162,8 +176,9 @@ const FIELDS = [
 ```
 
 `extractFields(text)` normalises the text once, then for each row finds the
-line matching `label` (trailing colon optional, case-insensitive) and takes
-the next non-empty line as the value. A label that is absent, or present with
+line beginning with `label` (trailing colon optional, case-insensitive). If
+that line carries more text after the label, it is the value; otherwise the
+value is the next non-empty line. A label that is absent, or present with
 no following value, yields `null` — it does not throw.
 
 **Normalisation is mandatory, not defensive.** The source PDF uses
