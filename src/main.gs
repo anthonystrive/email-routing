@@ -374,6 +374,27 @@ function dryRun() {
   var lines = toLines(text);
   console.log('Converted: ' + text.length + ' characters, '
     + lines.length + ' non-empty lines');
+
+  // Structural view of the converted document: which lines the extractor
+  // recognises as labels, and whether each carries its value inline or on the
+  // line after. Prints no content — only classifications and lengths — so a
+  // layout problem can be diagnosed without writing patient data anywhere.
+  console.log('--- layout ---');
+  lines.forEach(function (line, index) {
+    var label = matchedLabel(line);
+    var shape;
+    if (label === null) {
+      shape = 'value/other';
+    } else {
+      var target = label.toLowerCase().replace(/:$/, '').trim();
+      var remainder = line.trim().slice(target.length).replace(/^\s*:?\s*/, '');
+      shape = remainder.length > 0
+        ? 'LABEL+VALUE inline  <' + label + '>'
+        : 'LABEL alone         <' + label + '>';
+    }
+    console.log('  ' + String(index).padStart(2, ' ') + '  '
+      + String(line.length).padStart(3, ' ') + ' chars  ' + shape);
+  });
   console.log('Title    : '
     + (text.indexOf('New Patient Booking Activation') !== -1 ? 'found' : 'NOT FOUND'));
 

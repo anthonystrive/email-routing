@@ -65,10 +65,32 @@ var FIELDS = [
  * garbage ('Needs referral for:') into an email or phone field.
  */
 function isLabelLine(line) {
-  var candidate = line.toLowerCase().replace(/:$/, '').trim();
-  return FIELDS.some(function (field) {
-    return field.label.toLowerCase().replace(/:$/, '').trim() === candidate;
+  return matchedLabel(line) !== null;
+}
+
+/**
+ * The FIELDS label a line begins with, or null.
+ *
+ * A line counts as a label line whether it stands alone ('Patient gender:')
+ * or carries its value inline ('Patient gender: Male'). Drive's PDF
+ * conversion merges some label/value pairs onto one line and leaves others
+ * on two, depending on their spacing in the source document, so both forms
+ * occur within the same converted file.
+ *
+ * The character after the label must be a colon, a space, or nothing, so a
+ * short label can never match a longer one that merely starts with it.
+ */
+function matchedLabel(line) {
+  var normalised = String(line).toLowerCase().trim();
+  var found = null;
+  FIELDS.forEach(function (field) {
+    if (found !== null) return;
+    var target = field.label.toLowerCase().replace(/:$/, '').trim();
+    if (normalised.indexOf(target) !== 0) return;
+    var after = normalised.charAt(target.length);
+    if (after === '' || after === ':' || after === ' ') found = field.label;
   });
+  return found;
 }
 
 /**
@@ -76,14 +98,24 @@ function isLabelLine(line) {
  * Comparison is case-insensitive and tolerates a missing trailing colon.
  */
 function findValueForLabel(lines, label) {
-  const target = label.toLowerCase().replace(/:$/, '').trim();
-  for (let i = 0; i < lines.length; i++) {
-    const candidate = lines[i].toLowerCase().replace(/:$/, '').trim();
-    if (candidate === target) {
-      if (i + 1 >= lines.length) return null;
-      return isLabelLine(lines[i + 1]) ? null : lines[i + 1];
-    }
+  var target = label.toLowerCase().replace(/:$/, '').trim();
+
+  for (var i = 0; i < lines.length; i++) {
+    var normalised = lines[i].toLowerCase().trim();
+    if (normalised.indexOf(target) !== 0) continue;
+
+    var after = normalised.charAt(target.length);
+    if (after !== '' && after !== ':' && after !== ' ') continue;
+
+    // Inline form: 'Label: value' on a single line.
+    var remainder = lines[i].trim().slice(target.length).replace(/^\s*:?\s*/, '');
+    if (remainder.length > 0) return remainder;
+
+    // Next-line form: the label stands alone and its value is the line after.
+    if (i + 1 >= lines.length) return null;
+    return isLabelLine(lines[i + 1]) ? null : lines[i + 1];
   }
+
   return null;
 }
 

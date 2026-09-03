@@ -64,6 +64,34 @@ const WITH_ACCOUNT_HOLDER_B = COMPLETE
     'Needs referral for:',
   ].join('\n'));
 
+// Drive's converter merges some label/value pairs onto one line and leaves
+// others on two, depending on their spacing in the source PDF. Real converted
+// output contains both forms in the same document.
+const INLINE_MIXED = [
+  'New Patient Booking Activation',
+  'Patient first name:',
+  'Alex',
+  'Patient surname: Sample',
+  'Patient gender:',
+  'Male',
+  'Patient date of birth: 5/4/1988',
+  'Patient appointment date: 2/9/2026',
+  'Patient appointment time:',
+  '8:50 am',
+  'Account holder A titled full name: Dr. Jamie R Sample',
+  'Account holder A mobile number: +61-400-000-000',
+  'Account holder A email:',
+  'jamie@example.com',
+  'Needs referral for: OPG + Lateral Cephalogram',
+].join('\n');
+
+// A label whose value is blank, immediately followed by an INLINE label.
+// The guard must not take 'Needs referral for: OPG' as the email's value.
+const BLANK_BEFORE_INLINE = [
+  'Account holder A email:',
+  'Needs referral for: OPG',
+].join('\n');
+
 const UNRELATED = [
   'Invoice #4471',
   'Amount due: $320.00',
@@ -81,6 +109,8 @@ module.exports = {
   BAD_DATE,
   WITH_ACCOUNT_HOLDER_B,
   BLANK_VALUE,
+  INLINE_MIXED,
+  BLANK_BEFORE_INLINE,
   BOILERPLATE_VALUE,
   BOILERPLATE_MOBILE,
   UNRELATED,

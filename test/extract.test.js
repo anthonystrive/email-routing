@@ -98,6 +98,41 @@ test('label matching ignores case and a missing trailing colon', () => {
   assert.strictEqual(record.patient_first_name, 'Alex');
 });
 
+test('extracts an inline label/value pair on one line', () => {
+  const record = app.extractFields(fx.INLINE_MIXED);
+  assert.strictEqual(record.patient_surname, 'Sample');
+  assert.strictEqual(record.patient_appointment_date, '2026-09-02');
+  assert.strictEqual(record.account_holder_a_mobile, '+61-400-000-000');
+  assert.strictEqual(record.needs_referral_for, 'OPG + Lateral Cephalogram');
+});
+
+test('handles inline and next-line pairs in the same document', () => {
+  const record = app.extractFields(fx.INLINE_MIXED);
+  assert.strictEqual(record.patient_first_name, 'Alex');       // next-line
+  assert.strictEqual(record.patient_gender, 'Male');           // next-line
+  assert.strictEqual(record.patient_appointment_time, '8:50 am'); // next-line
+  assert.strictEqual(record.account_holder_a_email, 'jamie@example.com');
+  assert.strictEqual(record.account_holder_a_name, 'Dr. Jamie R Sample'); // inline
+});
+
+test('an inline transform still runs on the inline value', () => {
+  const record = app.extractFields(fx.INLINE_MIXED);
+  assert.strictEqual(record.patient_date_of_birth, '1988-04-05');
+});
+
+test('a blank value does not swallow an inline label that follows', () => {
+  const record = app.extractFields(fx.BLANK_BEFORE_INLINE);
+  assert.strictEqual(record.account_holder_a_email, null);
+  assert.strictEqual(record.needs_referral_for, 'OPG');
+});
+
+test('a label never matches a longer label that starts with it', () => {
+  // 'Patient appointment date' must not be found inside a hypothetical
+  // 'Patient appointment dates confirmed' line.
+  const record = app.extractFields('Patient appointment dateX: 1/1/2020');
+  assert.strictEqual(record.patient_appointment_date, null);
+});
+
 test('a label with no following line yields null', () => {
   const record = app.extractFields('Patient first name:');
   assert.strictEqual(record.patient_first_name, null);
