@@ -2183,26 +2183,26 @@ npx --yes @google/clasp@2.4.2 open
 
 `clasp open` opens the script in the browser for the remaining steps.
 
-- [ ] **Step 6: Enable the Drive advanced service**
+- [ ] **Step 6: Confirm the Drive advanced service — do NOT add it in the UI**
 
-In the Apps Script editor: **Services** (+) → **Drive API** → set version to
-**v2** → **Add**. The identifier must read `Drive`.
+`src/appsscript.json` already declares the Drive advanced service at **v2**,
+and `enabledAdvancedServices` in the manifest *is* the enablement. The push in
+Step 5 therefore enabled it. Nothing to do here.
 
-**v2, not v3.** The editor offers v2, and the code is written against it:
-`Drive.Files.insert` with a `title` field. v3's `Files.create`/`name` will
-throw. The manifest declares v2 to match.
+**Do not add it via Services (+) in the editor.** That button edits the same
+`appsscript.json`, so adding it produces a second entry and the editor then
+refuses to save with:
 
-The manifest declares this, but the editor also needs it enabled on the
-project itself. `Drive.Files.create` throws `ReferenceError: Drive is not
-defined` if this step is skipped.
+```
+Found a service identifier used more than once: Drive
+```
 
-**If Step 9 later fails with a Drive permission error**, the cause is almost
-certainly the `drive.file` scope being insufficient for the conversion.
-Widen it to `https://www.googleapis.com/auth/drive` in
-`src/appsscript.json`, `clasp push`, and re-approve the consent screen. The
-narrower scope is the correct default — it limits the script to files it
-creates itself rather than the whole Drive — but this is the one place it
-could bite, and the fix is one line.
+If that has already happened, re-run `npx --yes @google/clasp@2.4.2 push
+--force` — the pushed manifest overwrites the duplicated one.
+
+To verify it is active: open the editor, and confirm **Drive API** appears
+under **Services** in the left sidebar with identifier `Drive`, version v2.
+If the sidebar looks stale, reload the tab.
 
 - [ ] **Step 7: Set the script properties**
 
