@@ -118,7 +118,10 @@ function loadPipeline(options) {
     },
 
     // pdfToText's three services. The "conversion" hands back fixture text.
-    Drive: { Files: { create: () => ({ id: 'tmp-doc-1' }), remove: () => {} } },
+    // Drive advanced service v2: `insert`, not v3's `create`. If this fake and
+    // src/pdf.gs ever disagree, pdfToText throws and every booking fails —
+    // so the fake deliberately mirrors the real method name.
+    Drive: { Files: { insert: () => ({ id: 'tmp-doc-1' }), remove: () => {} } },
     DocumentApp: {
       openById: () => ({
         getBody: () => ({ getText: () => (options.documentText === undefined ? COMPLETE : options.documentText) }),

@@ -1318,7 +1318,7 @@ sender, are both worse than a loud failure in the execution log.
       {
         "userSymbol": "Drive",
         "serviceId": "drive",
-        "version": "v3"
+        "version": "v2"
       }
     ]
   },
@@ -2186,7 +2186,11 @@ npx --yes @google/clasp@2.4.2 open
 - [ ] **Step 6: Enable the Drive advanced service**
 
 In the Apps Script editor: **Services** (+) → **Drive API** → set version to
-**v3** → **Add**. The identifier must read `Drive`.
+**v2** → **Add**. The identifier must read `Drive`.
+
+**v2, not v3.** The editor offers v2, and the code is written against it:
+`Drive.Files.insert` with a `title` field. v3's `Files.create`/`name` will
+throw. The manifest declares v2 to match.
 
 The manifest declares this, but the editor also needs it enabled on the
 project itself. `Drive.Files.create` throws `ReferenceError: Drive is not

@@ -10,9 +10,13 @@
  * while reading still removes it.
  */
 function pdfToText(blob) {
-  var tempFile = Drive.Files.create(
+  // Drive advanced service v2: the method is `insert` (not v3's `create`) and
+  // the title field is `title` (not v3's `name`). v2 is what the Apps Script
+  // editor offers, and it is stable — do not "modernise" these names without
+  // also changing the version in appsscript.json.
+  var tempFile = Drive.Files.insert(
     {
-      name: 'tmp-pdf-extract-' + Utilities.getUuid(),
+      title: 'tmp-pdf-extract-' + Utilities.getUuid(),
       mimeType: MimeType.GOOGLE_DOCS
     },
     blob

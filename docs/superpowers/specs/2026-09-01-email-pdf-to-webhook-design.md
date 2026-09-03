@@ -21,7 +21,7 @@ systems (initially Zapier) as structured JSON, without manual re-keying.
 |---|---|---|
 | Inbound mail | Gmail mailbox | Free; no DNS or mail vendor. A forward from a custom domain hides the Gmail address from senders. |
 | Runtime | Google Apps Script, time-driven trigger | Free, no hosting, native Gmail and Drive access. |
-| PDF → text | Google Drive conversion to a Google Doc | Apps Script has no PDF library. Drive converts free and handles text-layer PDFs cleanly. |
+| PDF → text | Google Drive conversion to a Google Doc, via the **v2** advanced service | Apps Script has no PDF library. Drive converts free and handles text-layer PDFs cleanly. v2 is what the Apps Script editor offers; its call shape is `Files.insert` with `title`, not v3's `Files.create` with `name`. |
 | Extraction | Declarative label/value table | One consistent template. Deterministic, no model cost, missing fields reported not enforced. |
 | Delivery | HTTP POST to a Zapier Catch Hook | Push-only. No storage, no polling endpoint, no auth surface to defend. |
 | Trigger cadence | Every 1 minute | Apps Script's finest time-driven granularity. |
@@ -106,8 +106,10 @@ The `newer_than:7d` bound keeps the query cheap and stops the job from
 re-examining the entire mailbox once it has been running for months.
 
 ### `pdf.gs`
-Takes a PDF blob, creates a temporary Google Doc via the advanced Drive
-service (Google converts on upload), reads its text with `DocumentApp`, then
+Takes a PDF blob, creates a temporary Google Doc via the Drive **v2**
+advanced service — `Files.insert` with a `title` field; v3's `Files.create`
+with `name` is not what the editor offers — reads its text with
+`DocumentApp`, then
 deletes the temporary file outright (`Drive.Files.remove`, not trash) in a
 `finally` block, so a mid-run failure cannot leave copies of the source
 document accumulating in Drive.
