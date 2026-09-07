@@ -100,10 +100,12 @@ test('pruneSeen never touches the live configuration properties', () => {
     ZAPIER_HOOK_URL: 'https://hooks.zapier.com/hooks/catch/1/abc/',
     SENDER_ALLOWLIST: 'bookings@clinic.com.au,@clinic.com.au',
     SUMMARY_TO: 'owner@clinic.com.au',
+    DRY_RUN_MESSAGE_ID: '1a06586fe53c08c0',
   });
 
   app.pruneSeen();
 
+  assert.strictEqual(store.DRY_RUN_MESSAGE_ID, '1a06586fe53c08c0');
   assert.strictEqual(store.ZAPIER_HOOK_URL, 'https://hooks.zapier.com/hooks/catch/1/abc/');
   assert.strictEqual(store.SENDER_ALLOWLIST, 'bookings@clinic.com.au,@clinic.com.au');
   assert.strictEqual(store.SUMMARY_TO, 'owner@clinic.com.au');

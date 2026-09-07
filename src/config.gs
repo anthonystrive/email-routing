@@ -24,7 +24,7 @@ function getScriptProperty(name) {
     // file is open, and this is the first one in config.gs.
     throw new Error('getScriptProperty is an internal helper and takes an '
       + 'argument — it is not meant to be run directly. Open main.gs and pick '
-      + 'one of: dryRun, runOnce, seedBacklog, installTrigger, '
+      + 'one of: dryRun, dryRunById, runOnce, seedBacklog, installTrigger, '
       + 'installSummaryTrigger.');
   }
   var value = PropertiesService.getScriptProperties().getProperty(name);
@@ -33,6 +33,20 @@ function getScriptProperty(name) {
       + '. Set it in Project Settings -> Script Properties.');
   }
   return value;
+}
+
+/**
+ * The message dryRunById inspects, or null when unset.
+ *
+ * Read directly rather than through getScriptProperty, which throws: an unset
+ * value here is a setup step not yet taken, not a broken deployment. Trimmed
+ * because it is pasted by hand into a web form.
+ */
+function getDryRunMessageId() {
+  var value = PropertiesService.getScriptProperties().getProperty('DRY_RUN_MESSAGE_ID');
+  if (!value) return null;
+  var trimmed = String(value).trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 function getHookUrl() {

@@ -594,3 +594,65 @@ test('dryRun with no argument still picks its own candidate', () => {
   assert.ok(logs.some((line) => line.includes('msg-new')));
   assert.strictEqual(posts.length, 0);
 });
+
+// ---------------------------------------------------------------------------
+// dryRunById: the same inspection, driven by a script property.
+// ---------------------------------------------------------------------------
+
+/** As loadProcessed, with the id named in a script property. */
+function loadProcessedWithProperty(value) {
+  const message = fakeMessage('msg-done');
+  const thread = fakeThread('thread-1', [message]);
+  const pipeline = loadPipeline({
+    threads: [thread],
+    messagesById: { 'msg-done': message },
+    properties: { DRY_RUN_MESSAGE_ID: value },
+  });
+  pipeline.app.markSeen('msg-done', pipeline.app.LABELS.processed);
+  return pipeline;
+}
+
+test('dryRunById inspects the message named by the script property', () => {
+  // The editor's Run button cannot pass an argument, so the alternative is a
+  // wrapper function typed into the editor — and saving anything in the editor
+  // writes that tab's whole file back over whatever clasp last pushed, which
+  // has already silently reverted one deployment here.
+  const { app, logs } = loadProcessedWithProperty('msg-done');
+
+  app.dryRunById();
+
+  assert.ok(logs.some((line) => line.includes('msg-done')));
+  assert.ok(logs.some((line) => line.includes('patient_first_name')),
+    'the field report should have run');
+});
+
+test('dryRunById says what to set when the property is missing', () => {
+  const { app, logs } = loadProcessedWithProperty(undefined);
+
+  app.dryRunById();
+
+  assert.ok(logs.some((line) => line.includes('DRY_RUN_MESSAGE_ID')),
+    'the log should name the property to set');
+  assert.ok(logs.some((line) => /script propert/i.test(line)),
+    'the log should say where to set it');
+});
+
+test('dryRunById tolerates an id pasted with surrounding whitespace', () => {
+  // It is pasted by hand into a web form; a stray space would otherwise read
+  // as an unresolvable id and send someone hunting for the wrong problem.
+  const { app, logs } = loadProcessedWithProperty('  msg-done\n');
+
+  app.dryRunById();
+
+  assert.ok(logs.some((line) => line.includes('patient_first_name')),
+    'the whitespace should not have made the id unresolvable');
+});
+
+test('dryRunById leaves the seen store untouched', () => {
+  const { app, store } = loadProcessedWithProperty('msg-done');
+  const before = JSON.stringify(store);
+
+  app.dryRunById();
+
+  assert.strictEqual(JSON.stringify(store), before);
+});

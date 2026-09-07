@@ -360,8 +360,9 @@ function diagnose() {
 
   console.log('A message with pdf:yes and seen:no is what runOnce and the '
     + 'trigger pick up. "seen" means it was already handled. To inspect one '
-    + "without reprocessing it, run dryRun('<message id>'). Deleting its "
-    + 'seen:<id> script property instead makes the trigger deliver it again.');
+    + 'without reprocessing it, put its id in the DRY_RUN_MESSAGE_ID script '
+    + 'property and run dryRunById. Deleting its seen:<id> property instead '
+    + 'makes the trigger deliver it again.');
 }
 
 /**
@@ -381,6 +382,35 @@ var DRY_RUN_SHOW_VALUES = [
   'needs_opg',
   'needs_lateral_ceph'
 ];
+
+/**
+ * dryRun for the message named by the DRY_RUN_MESSAGE_ID script property.
+ *
+ * The editor's Run button cannot pass an argument, so inspecting a chosen
+ * message otherwise means typing a wrapper function into the editor. That is
+ * worth avoiding: the editor holds whatever version of the file its tab was
+ * opened with, and saving writes that whole file back over whatever clasp last
+ * pushed — silently reverting a deployment, which has already happened here
+ * once. Naming the message in a property keeps every run a dropdown selection
+ * and the editor a read-only window.
+ *
+ * Set DRY_RUN_MESSAGE_ID in Project Settings -> Script Properties. It is only
+ * ever read, so a stale value costs nothing; pruneSeen leaves it alone, as it
+ * does every other configuration key sharing that store.
+ */
+function dryRunById() {
+  var messageId = getDryRunMessageId();
+
+  if (messageId === null) {
+    console.log('Nothing to inspect: set DRY_RUN_MESSAGE_ID in Project '
+      + 'Settings -> Script Properties to the id of the message you want, '
+      + 'then run this again. diagnose() lists recent message ids.');
+    return;
+  }
+
+  console.log('DRY_RUN_MESSAGE_ID: ' + messageId);
+  dryRun(messageId);
+}
 
 /**
  * Extracts one message and reports what was found, WITHOUT delivering,
