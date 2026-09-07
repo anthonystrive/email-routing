@@ -2,7 +2,7 @@
  * Bumped by hand whenever FIELDS changes, so a downstream consumer can tell
  * which ruleset produced a given record.
  */
-var EXTRACTOR_VERSION = '1.0.0';
+var EXTRACTOR_VERSION = '1.1.0';
 
 /**
  * The only place in this system that knows anything about the source
@@ -21,6 +21,23 @@ var EXTRACTOR_VERSION = '1.0.0';
  * nulled, which routes it into missing_fields and pdf-partial exactly as a
  * failed transform does. Kept deliberately loose: the goal is rejecting
  * obvious boilerplate, not validating addresses or phone numbers.
+ *
+ * `multiline: true` means the value may run over several consecutive lines,
+ * and collection continues until the next label or the end of the document.
+ * The September 2026 template revision made this true of two fields: Account
+ * holder A now lists one email address per line (one to three across the
+ * sample documents), and Needs referral for lists one item per line where it
+ * previously emitted a single '+'-joined string. Without it only the first
+ * line survives — silently, since a short list is indistinguishable from a
+ * complete one downstream. `pattern` is applied per line, so a stray footer
+ * among the addresses is dropped without costing the addresses either side.
+ *
+ * `listKey` names an additional record key holding every collected value as
+ * an array; the field's own key keeps the first, so an existing consumer
+ * reading `account_holder_a_email` as a string is unaffected. `join` instead
+ * folds the collected lines into one string — ' + ' for the referral, which
+ * reproduces exactly the single-line form the old template produced, so the
+ * derived booleans and any downstream string matching carry on unchanged.
  *
  * Every `transform` is wrapped in a function literal rather than named
  * directly. A bare reference is dereferenced when this array is BUILT, which
@@ -44,16 +61,18 @@ var FIELDS = [
   { key: 'account_holder_a_mobile',  label: 'Account holder A mobile number',
     pattern: /\d/ },
   { key: 'account_holder_a_email',   label: 'Account holder A email',
-    pattern: /@/ },
+    pattern: /@/, multiline: true, listKey: 'account_holder_a_emails' },
 
   { key: 'account_holder_b_name',    label: 'Account holder B titled full name',
     optional: true },
   { key: 'account_holder_b_mobile',  label: 'Account holder B mobile number',
     optional: true, pattern: /\d/ },
   { key: 'account_holder_b_email',   label: 'Account holder B email',
-    optional: true, pattern: /@/ },
+    optional: true, pattern: /@/, multiline: true,
+    listKey: 'account_holder_b_emails' },
 
-  { key: 'needs_referral_for',       label: 'Needs referral for' },
+  { key: 'needs_referral_for',       label: 'Needs referral for',
+    multiline: true, join: ' + ' },
 ];
 
 /**
@@ -94,10 +113,24 @@ function matchedLabel(line) {
 }
 
 /**
- * Finds a label line and returns the next line, which is its value.
- * Comparison is case-insensitive and tolerates a missing trailing colon.
+ * Every line belonging to a label, in document order.
+ *
+ * Returns [] when the label is absent or carries no value, so a caller never
+ * has to distinguish "not found" from "found but empty" — both are nothing.
+ *
+ * Comparison is case-insensitive and tolerates a missing trailing colon. Both
+ * of the converter's forms are handled: an inline 'Label: value', and a label
+ * standing alone with its value on the line after. A field may be both — when
+ * Drive merges the label with the first of several values, the remaining
+ * lines still follow — so for a `multiline` field the inline remainder is the
+ * first item and collection continues from the next line.
+ *
+ * Collection stops at the next label or the end of the document. Blank lines
+ * never reach here: `toLines` drops them, which is what lets the referral
+ * block survive the empty line the template leaves between it and its label
+ * on some documents.
  */
-function findValueForLabel(lines, label) {
+function collectValuesForLabel(lines, label, multiline) {
   var target = label.toLowerCase().replace(/:$/, '').trim();
 
   for (var i = 0; i < lines.length; i++) {
@@ -107,16 +140,26 @@ function findValueForLabel(lines, label) {
     var after = normalised.charAt(target.length);
     if (after !== '' && after !== ':' && after !== ' ') continue;
 
+    var values = [];
+
     // Inline form: 'Label: value' on a single line.
     var remainder = lines[i].trim().slice(target.length).replace(/^\s*:?\s*/, '');
-    if (remainder.length > 0) return remainder;
+    if (remainder.length > 0) values.push(remainder);
 
-    // Next-line form: the label stands alone and its value is the line after.
-    if (i + 1 >= lines.length) return null;
-    return isLabelLine(lines[i + 1]) ? null : lines[i + 1];
+    // Next-line form. A single-value field takes one line and stops; a
+    // multiline field keeps going until the next label ends its block.
+    if (values.length === 0 || multiline) {
+      for (var j = i + 1; j < lines.length; j++) {
+        if (isLabelLine(lines[j])) break;
+        values.push(lines[j]);
+        if (!multiline) break;
+      }
+    }
+
+    return values;
   }
 
-  return null;
+  return [];
 }
 
 /**
@@ -129,17 +172,27 @@ function extractFields(rawText) {
   const record = {};
 
   FIELDS.forEach(function (field) {
-    const raw = findValueForLabel(lines, field.label);
-    let value = raw;
-    if (value !== null && field.transform) {
-      value = field.transform(value);
-    }
-    // A value that cannot be what this field holds is treated as not found.
-    if (value !== null && value !== undefined && field.pattern
-        && !field.pattern.test(String(value))) {
-      value = null;
-    }
-    record[field.key] = (value === '' || value === undefined) ? null : value;
+    const collected = collectValuesForLabel(lines, field.label, field.multiline === true);
+
+    // Transform and screen line by line. A single-value field has at most one
+    // line here, so this is the original behaviour; for a multiline field it
+    // is what keeps one unreadable line from costing the whole list.
+    const values = collected
+      .map(function (line) {
+        return field.transform ? field.transform(line) : line;
+      })
+      .filter(function (value) {
+        if (value === null || value === undefined || value === '') return false;
+        // A value that cannot be what this field holds is treated as not found.
+        return !field.pattern || field.pattern.test(String(value));
+      });
+
+    record[field.key] = values.length === 0 ? null
+      : (field.join ? values.join(field.join) : values[0]);
+
+    // Always an array, empty when nothing was found — a downstream consumer
+    // iterating this key should never have to null-check it first.
+    if (field.listKey) record[field.listKey] = values;
   });
 
   // Derived by substring rather than by matching the three known values

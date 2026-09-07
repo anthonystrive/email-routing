@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { loadAppsScript } = require('./load');
+const { loadAppsScript, host } = require('./load');
 const fx = require('./fixtures');
 
 const app = loadAppsScript(['text.gs', 'transforms.gs', 'extract.gs']);
@@ -191,4 +191,90 @@ test('a rejected value is reported as missing, not as complete', () => {
   const assessment = app2.assessExtraction(app2.extractFields(fx.BOILERPLATE_VALUE));
   assert.strictEqual(assessment.complete, false);
   assert.ok(assessment.missing_fields.includes('account_holder_a_email'));
+});
+
+// --- multi-line values: the September 2026 template revision ---
+
+test('every Account holder A email address is collected', () => {
+  const record = app.extractFields(fx.MULTI_EMAIL);
+  assert.deepStrictEqual(host(record.account_holder_a_emails), [
+    'jamie@example.com',
+    'alex@example.com',
+    'bookings@example.com',
+  ]);
+});
+
+test('the scalar email field keeps the first address', () => {
+  // Existing Zap steps read account_holder_a_email as a string. The list is
+  // additive; this key must not change type or value for them.
+  const record = app.extractFields(fx.MULTI_EMAIL);
+  assert.strictEqual(record.account_holder_a_email, 'jamie@example.com');
+});
+
+test('a single address still yields a one-element list', () => {
+  const record = app.extractFields(fx.COMPLETE);
+  assert.deepStrictEqual(host(record.account_holder_a_emails), ['jamie@example.com']);
+});
+
+test('a non-address line inside the email block is dropped', () => {
+  const record = app.extractFields(fx.MULTI_EMAIL_WITH_BOILERPLATE);
+  assert.deepStrictEqual(host(record.account_holder_a_emails), [
+    'jamie@example.com',
+    'bookings@example.com',
+  ]);
+  assert.strictEqual(record.account_holder_a_email, 'jamie@example.com');
+});
+
+test('no address at all yields an empty list and a null value', () => {
+  const record = app.extractFields(fx.BLANK_VALUE);
+  assert.deepStrictEqual(host(record.account_holder_a_emails), []);
+  assert.strictEqual(record.account_holder_a_email, null);
+});
+
+test('account holder B addresses collect the same way', () => {
+  const record = app.extractFields(fx.MULTI_EMAIL_ACCOUNT_HOLDER_B);
+  assert.deepStrictEqual(host(record.account_holder_b_emails), [
+    'chris@example.com',
+    'chris.alt@example.com',
+  ]);
+  assert.strictEqual(record.account_holder_b_email, 'chris@example.com');
+});
+
+test('an absent account holder B yields an empty list, not null', () => {
+  const record = app.extractFields(fx.COMPLETE);
+  assert.deepStrictEqual(host(record.account_holder_b_emails), []);
+});
+
+test('a referral listed one item per line joins into the single-line form', () => {
+  // The old template emitted 'OPG + Lateral Cephalogram' on one line. The
+  // new one lists each item separately; downstream must not be able to tell.
+  const record = app.extractFields(fx.MULTI_REFERRAL);
+  assert.strictEqual(record.needs_referral_for, 'OPG + Lateral Cephalogram');
+});
+
+test('booleans are derived from a referral spanning several lines', () => {
+  const record = app.extractFields(fx.MULTI_REFERRAL);
+  assert.strictEqual(record.needs_opg, true);
+  assert.strictEqual(record.needs_lateral_ceph, true);
+});
+
+test('a blank line between a label and its value does not break extraction', () => {
+  const record = app.extractFields(fx.BLANK_LINE_BEFORE_VALUE);
+  assert.strictEqual(record.needs_referral_for, 'OPG + Lateral Cephalogram');
+  assert.strictEqual(record.account_holder_a_email, 'jamie@example.com');
+});
+
+test('an inline label followed by more lines collects the whole list', () => {
+  // Drive merges some label/value pairs onto one line. When it merges the
+  // label with the FIRST of several addresses, the rest still follow on their
+  // own lines, and all of them belong to the field.
+  const text = fx.COMPLETE.replace(
+    'Account holder A email:\njamie@example.com',
+    'Account holder A email: jamie@example.com\nalex@example.com'
+  );
+  const record = app.extractFields(text);
+  assert.deepStrictEqual(host(record.account_holder_a_emails), [
+    'jamie@example.com',
+    'alex@example.com',
+  ]);
 });

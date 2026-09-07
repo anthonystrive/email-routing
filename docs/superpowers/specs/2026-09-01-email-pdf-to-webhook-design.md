@@ -53,7 +53,7 @@ This matters more than it sounds. Fixtures written from the PDF's internal
 structure — which is what the original analysis of this file produced — contain
 only the two-line form, so an extractor that handles only that form passes
 every test and then returns null for the merged fields against real mail.
-`findValueForLabel` handles both, and `test/fixtures.js` carries a mixed
+`collectValuesForLabel` handles both, and `test/fixtures.js` carries a mixed
 fixture so the inline form stays covered.
 
 Known variability the single sample does not settle, to confirm before or
@@ -62,9 +62,44 @@ during implementation:
 - **Account holder B** rows are included as a safeguard, with labels assumed
   to mirror A's. No sample containing a B record has been seen, so the exact
   label wording is unverified.
-- `Needs referral for` takes one of three known values: `OPG`,
-  `Lateral Cephalogram`, or `OPG + Lateral Cephalogram`.
+- ~~`Needs referral for` takes one of three known values: `OPG`,
+  `Lateral Cephalogram`, or `OPG + Lateral Cephalogram`.~~ Superseded by the
+  September 2026 revision below: the items are now listed one per line.
 - Whether the document ever runs to a second page.
+
+## Template revision — September 2026
+
+Three further sample documents (again analysed then deleted — they contained
+real patient data) show the template has changed in two ways. Both make a
+field's value span **several consecutive lines**, which the original
+one-label-one-line reading cannot see.
+
+**Account holder A now lists every email address, one per line.** The three
+samples carried three, two and three addresses; one recurring address is the
+practice's own copy. The old reader took the line after the label and stopped,
+so it captured the first address and dropped the rest silently — no error, no
+`missing_fields` entry, nothing downstream could detect.
+
+**`Needs referral for` lists one item per line** where it previously emitted a
+single `+`-joined string. None of the three samples selects more than one
+item, so the two-item case has not been seen directly; the tell is the layout.
+Two of the three leave an **empty line** between the label and its value —
+confirmed against the PDF content stream, where nothing at all is drawn on
+that line — which is a list rendering blank slots. The blank line itself is
+harmless, since `toLines` drops empty lines before pairing. The list is not:
+a booking needing both items would yield a wrong boolean, which is worse than
+a null because nothing downstream can detect it.
+
+`collectValuesForLabel` therefore gathers every line belonging to a label
+until the next label or the end of the document, for fields marked
+`multiline`. `pattern` is applied per line, so a stray non-address line among
+the emails is dropped without costing the addresses either side.
+
+**Assumption, unverified:** the document has no footer. All three samples end
+at the referral value, and `Needs referral for` is the last field, so
+multiline collection runs to end-of-document. Should a footer ever appear, it
+would be appended to the referral value — one fixture and a `pattern` on that
+field is the fix.
 
 ## Architecture
 
@@ -160,7 +195,11 @@ const FIELDS = [
 
   { key: 'account_holder_a_name',    label: 'Account holder A titled full name' },
   { key: 'account_holder_a_mobile',  label: 'Account holder A mobile number' },
-  { key: 'account_holder_a_email',   label: 'Account holder A email' },
+  // One address per line since the September 2026 revision. `listKey` adds an
+  // array of all of them; the field's own key keeps the first, so a consumer
+  // reading it as a string is unaffected.
+  { key: 'account_holder_a_email',   label: 'Account holder A email',
+    pattern: /@/, multiline: true, listKey: 'account_holder_a_emails' },
 
   // Account holder B is a safeguard: expected to be absent on most bookings.
   // `optional` keeps its absence out of the completeness calculation.
@@ -169,9 +208,14 @@ const FIELDS = [
   { key: 'account_holder_b_mobile',  label: 'Account holder B mobile number',
     optional: true },
   { key: 'account_holder_b_email',   label: 'Account holder B email',
-    optional: true },
+    optional: true, pattern: /@/, multiline: true,
+    listKey: 'account_holder_b_emails' },
 
-  { key: 'needs_referral_for',       label: 'Needs referral for' },
+  // Listed one item per line since the September 2026 revision. `join`
+  // reproduces the single-line form the old template produced, so the derived
+  // booleans and any downstream string matching are unaffected.
+  { key: 'needs_referral_for',       label: 'Needs referral for',
+    multiline: true, join: ' + ' },
 ];
 ```
 
@@ -205,8 +249,10 @@ sample containing a B record has been seen. If the wording differs, only
 these three `label` strings change, and until then B records simply extract
 as null rather than breaking anything.
 
-**Derived fields.** `needs_referral_for` takes one of three known values:
-`OPG`, `Lateral Cephalogram`, or `OPG + Lateral Cephalogram`. Rather than
+**Derived fields.** `needs_referral_for` is the referral items joined with
+` + `, which reproduces the single-line form the template used to emit
+directly: `OPG`, `Lateral Cephalogram`, or `OPG + Lateral Cephalogram`.
+Rather than
 force downstream consumers to string-match a compound value, extraction
 derives two booleans by substring:
 
@@ -257,9 +303,11 @@ steps never break on a missing key.
   "account_holder_a_name": "Dr. Jamie R Sample",
   "account_holder_a_mobile": "+61-400-000-000",
   "account_holder_a_email": "jamie@example.com",
+  "account_holder_a_emails": ["jamie@example.com", "bookings@example.com"],
   "account_holder_b_name": null,
   "account_holder_b_mobile": null,
   "account_holder_b_email": null,
+  "account_holder_b_emails": [],
   "needs_referral_for": "OPG + Lateral Cephalogram",
   "needs_opg": true,
   "needs_lateral_ceph": true,
@@ -267,12 +315,18 @@ steps never break on a missing key.
     "message_id": "...",
     "from": "sender@example.com",
     "received_at": "2026-09-01T04:31:00.000Z",
-    "extractor_version": "1.0.0",
+    "extractor_version": "1.1.0",
     "complete": true,
     "missing_fields": []
   }
 }
 ```
+
+The payload is flat apart from `_meta`, with one exception: a field whose
+value is genuinely a list arrives as an array of strings, which a Catch Hook
+exposes as line items. Nested objects stay out. The scalar
+`account_holder_a_email` sits beside the array holding the first address, so a
+Zap step written before the template listed several keeps working untouched.
 
 The example above is a **complete** record despite the three null account
 holder B fields — those are optional, so their absence does not count.

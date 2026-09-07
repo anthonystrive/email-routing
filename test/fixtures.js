@@ -102,6 +102,44 @@ function withReferral(value) {
   return COMPLETE.replace('OPG + Lateral Cephalogram', value);
 }
 
+// The template now lists every Account holder A address on its own line —
+// one to three of them across the sample documents. The account holder's own
+// address comes first, with the practice's copy trailing it.
+const MULTI_EMAIL = COMPLETE
+  .replace('jamie@example.com', [
+    'jamie@example.com',
+    'alex@example.com',
+    'bookings@example.com',
+  ].join('\n'));
+
+// A non-address line inside the email block. The pattern check runs per line,
+// so this is dropped and the two real addresses are kept — rather than the
+// whole field nulling, or the footer travelling as an address.
+const MULTI_EMAIL_WITH_BOILERPLATE = COMPLETE
+  .replace('jamie@example.com', [
+    'jamie@example.com',
+    'Page 1 of 1',
+    'bookings@example.com',
+  ].join('\n'));
+
+// Account holder B's addresses list exactly as A's do.
+const MULTI_EMAIL_ACCOUNT_HOLDER_B = WITH_ACCOUNT_HOLDER_B
+  .replace('chris@example.com', [
+    'chris@example.com',
+    'chris.alt@example.com',
+  ].join('\n'));
+
+// The new referral layout: one item per line, where the old template emitted
+// a single '+'-joined string.
+const MULTI_REFERRAL = COMPLETE
+  .replace('OPG + Lateral Cephalogram', ['OPG', 'Lateral Cephalogram'].join('\n'));
+
+// Two of the three sample documents leave an empty line between
+// 'Needs referral for:' and its value. Confirmed against the content stream:
+// nothing is drawn on that line, so it is a real blank, not whitespace text.
+const BLANK_LINE_BEFORE_VALUE = COMPLETE
+  .replace('Needs referral for:\n', 'Needs referral for:\n\n');
+
 module.exports = {
   COMPLETE,
   RAW_ENCODING,
@@ -113,6 +151,11 @@ module.exports = {
   BLANK_BEFORE_INLINE,
   BOILERPLATE_VALUE,
   BOILERPLATE_MOBILE,
+  MULTI_EMAIL,
+  MULTI_EMAIL_WITH_BOILERPLATE,
+  MULTI_EMAIL_ACCOUNT_HOLDER_B,
+  MULTI_REFERRAL,
+  BLANK_LINE_BEFORE_VALUE,
   UNRELATED,
   withReferral,
 };

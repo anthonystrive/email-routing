@@ -458,6 +458,15 @@ function dryRun() {
     }
     console.log('  ' + field.key + ': ' + shown);
   });
+  // Count only. These are patient contact details, and the rule above is that
+  // a dry run never writes one to the execution log — but a count is exactly
+  // what tells an operator whether the multi-address block was read at all.
+  FIELDS.forEach(function (field) {
+    if (!field.listKey) return;
+    var found = record[field.listKey] || [];
+    console.log('  ' + field.listKey + ': ' + found.length
+      + (found.length === 1 ? ' address' : ' addresses'));
+  });
   console.log('  needs_opg: ' + record.needs_opg);
   console.log('  needs_lateral_ceph: ' + record.needs_lateral_ceph);
 
