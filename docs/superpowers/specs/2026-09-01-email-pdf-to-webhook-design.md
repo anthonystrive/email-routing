@@ -95,6 +95,16 @@ until the next label or the end of the document, for fields marked
 `multiline`. `pattern` is applied per line, so a stray non-address line among
 the emails is dropped without costing the addresses either side.
 
+**Confirmed in production, and it broke:** Drive's converter merges *lines*,
+not only label/value pairs. The addresses that occupy one line each in the PDF
+arrived on a single line, so `collectValuesForLabel` returned one value holding
+all of them and Zapier rejected `account_holder_a_email` as not an email. The
+local check that missed this ran against the PDF's text layer, where the lines
+are still separate — the same trap the inline label/value fix hit, one level
+down. The address fields now declare a `separator` and split what they collect;
+only fields declaring one are split, since a name and a mobile number contain
+spaces.
+
 **Assumption, unverified:** the document has no footer. All three samples end
 at the referral value, and `Needs referral for` is the last field, so
 multiline collection runs to end-of-document. Should a footer ever appear, it
@@ -199,7 +209,8 @@ const FIELDS = [
   // array of all of them; the field's own key keeps the first, so a consumer
   // reading it as a string is unaffected.
   { key: 'account_holder_a_email',   label: 'Account holder A email',
-    pattern: /@/, multiline: true, listKey: 'account_holder_a_emails' },
+    pattern: /@/, multiline: true, separator: /[\s,;]+/,
+    listKey: 'account_holder_a_emails' },
 
   // Account holder B is a safeguard: expected to be absent on most bookings.
   // `optional` keeps its absence out of the completeness calculation.
@@ -315,7 +326,7 @@ steps never break on a missing key.
     "message_id": "...",
     "from": "sender@example.com",
     "received_at": "2026-09-01T04:31:00.000Z",
-    "extractor_version": "1.1.0",
+    "extractor_version": "1.2.0",
     "complete": true,
     "missing_fields": []
   }

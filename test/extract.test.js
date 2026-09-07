@@ -278,3 +278,47 @@ test('an inline label followed by more lines collects the whole list', () => {
     'alex@example.com',
   ]);
 });
+
+test('addresses merged onto one line by the converter are split apart', () => {
+  // Drive merges lines. Collected as one value, both addresses travel in a
+  // single field and the receiving system rejects it as not an email — which
+  // is exactly what reached Zapier.
+  const record = app.extractFields(fx.MERGED_EMAILS);
+  assert.deepStrictEqual(host(record.account_holder_a_emails), [
+    'jamie@example.com',
+    'alex@example.com',
+  ]);
+  assert.strictEqual(record.account_holder_a_email, 'jamie@example.com');
+});
+
+test('merged addresses split on commas and semicolons too', () => {
+  const record = app.extractFields(fx.MERGED_EMAILS_PUNCTUATED);
+  assert.deepStrictEqual(host(record.account_holder_a_emails), [
+    'jamie@example.com',
+    'alex@example.com',
+    'bookings@example.com',
+  ]);
+});
+
+test('splitting is confined to the address fields', () => {
+  // A name and a mobile number both contain spaces and must survive whole.
+  // Only a field that declares a separator is split.
+  const record = app.extractFields(fx.MERGED_EMAILS);
+  assert.strictEqual(record.account_holder_a_name, 'Dr. Jamie R Sample');
+  assert.strictEqual(record.account_holder_a_mobile, '+61-400-000-000');
+  assert.strictEqual(record.needs_referral_for, 'OPG + Lateral Cephalogram');
+});
+
+test('a label merged inline with several addresses is still split', () => {
+  // Both of Drive's merges at once: the label joined to its value, and the
+  // addresses joined to each other.
+  const text = fx.COMPLETE.replace(
+    'Account holder A email:\njamie@example.com',
+    'Account holder A email: jamie@example.com alex@example.com'
+  );
+  const record = app.extractFields(text);
+  assert.deepStrictEqual(host(record.account_holder_a_emails), [
+    'jamie@example.com',
+    'alex@example.com',
+  ]);
+});

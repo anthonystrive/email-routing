@@ -140,6 +140,17 @@ const MULTI_REFERRAL = COMPLETE
 const BLANK_LINE_BEFORE_VALUE = COMPLETE
   .replace('Needs referral for:\n', 'Needs referral for:\n\n');
 
+// Drive's converter merges lines as well as label/value pairs. Where the PDF
+// has one address per line, the converted text can carry several on a single
+// line, separated by whatever whitespace the merge produced. This is what
+// reached Zapier as one unusable value.
+const MERGED_EMAILS = COMPLETE
+  .replace('jamie@example.com', 'jamie@example.com alex@example.com');
+
+// The same merge with the separators a converter is also seen to produce.
+const MERGED_EMAILS_PUNCTUATED = COMPLETE
+  .replace('jamie@example.com', 'jamie@example.com, alex@example.com; bookings@example.com');
+
 module.exports = {
   COMPLETE,
   RAW_ENCODING,
@@ -152,6 +163,8 @@ module.exports = {
   BOILERPLATE_VALUE,
   BOILERPLATE_MOBILE,
   MULTI_EMAIL,
+  MERGED_EMAILS,
+  MERGED_EMAILS_PUNCTUATED,
   MULTI_EMAIL_WITH_BOILERPLATE,
   MULTI_EMAIL_ACCOUNT_HOLDER_B,
   MULTI_REFERRAL,

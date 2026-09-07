@@ -2,7 +2,7 @@
  * Bumped by hand whenever FIELDS changes, so a downstream consumer can tell
  * which ruleset produced a given record.
  */
-var EXTRACTOR_VERSION = '1.1.0';
+var EXTRACTOR_VERSION = '1.2.0';
 
 /**
  * The only place in this system that knows anything about the source
@@ -31,6 +31,13 @@ var EXTRACTOR_VERSION = '1.1.0';
  * line survives — silently, since a short list is indistinguishable from a
  * complete one downstream. `pattern` is applied per line, so a stray footer
  * among the addresses is dropped without costing the addresses either side.
+ *
+ * `separator` splits a collected line into several values. Drive's converter
+ * merges lines as readily as it merges label/value pairs, so the addresses
+ * that occupy one line each in the PDF can arrive on a single line — and
+ * collected whole, both travel in one field, which a receiving system rejects
+ * as not an email. Only a field that declares a separator is split: a name and
+ * a mobile number both contain spaces and must survive intact.
  *
  * `listKey` names an additional record key holding every collected value as
  * an array; the field's own key keeps the first, so an existing consumer
@@ -61,14 +68,15 @@ var FIELDS = [
   { key: 'account_holder_a_mobile',  label: 'Account holder A mobile number',
     pattern: /\d/ },
   { key: 'account_holder_a_email',   label: 'Account holder A email',
-    pattern: /@/, multiline: true, listKey: 'account_holder_a_emails' },
+    pattern: /@/, multiline: true, separator: /[\s,;]+/,
+    listKey: 'account_holder_a_emails' },
 
   { key: 'account_holder_b_name',    label: 'Account holder B titled full name',
     optional: true },
   { key: 'account_holder_b_mobile',  label: 'Account holder B mobile number',
     optional: true, pattern: /\d/ },
   { key: 'account_holder_b_email',   label: 'Account holder B email',
-    optional: true, pattern: /@/, multiline: true,
+    optional: true, pattern: /@/, multiline: true, separator: /[\s,;]+/,
     listKey: 'account_holder_b_emails' },
 
   { key: 'needs_referral_for',       label: 'Needs referral for',
@@ -174,10 +182,17 @@ function extractFields(rawText) {
   FIELDS.forEach(function (field) {
     const collected = collectValuesForLabel(lines, field.label, field.multiline === true);
 
+    // One line can hold several values where the converter merged them.
+    const parts = field.separator
+      ? collected.reduce(function (all, line) {
+          return all.concat(String(line).split(field.separator));
+        }, [])
+      : collected;
+
     // Transform and screen line by line. A single-value field has at most one
     // line here, so this is the original behaviour; for a multiline field it
     // is what keeps one unreadable line from costing the whole list.
-    const values = collected
+    const values = parts
       .map(function (line) {
         return field.transform ? field.transform(line) : line;
       })
