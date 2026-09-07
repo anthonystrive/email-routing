@@ -359,8 +359,9 @@ function diagnose() {
   });
 
   console.log('A message with pdf:yes and seen:no is what runOnce and the '
-    + 'trigger pick up. "seen" means it was already handled — delete its '
-    + 'seen:<id> script property to have it processed again.');
+    + 'trigger pick up. "seen" means it was already handled. To inspect one '
+    + "without reprocessing it, run dryRun('<message id>'). Deleting its "
+    + 'seen:<id> script property instead makes the trigger deliver it again.');
 }
 
 /**
@@ -386,22 +387,47 @@ var DRY_RUN_SHOW_VALUES = [
  * labelling or recording it. Run by hand during setup to confirm that Drive's
  * conversion produces the layout the extractor expects.
  *
+ * With no argument it takes the first message the trigger would pick up.
+ * Given a message id it inspects that message instead, whether or not it has
+ * already been processed — the seen store is not consulted and not modified.
+ * That is the safe way to re-examine a booking that has already been through:
+ * deleting its seen record would work too, but hands it back to the trigger
+ * for a duplicate delivery. diagnose() lists recent message ids.
+ *
  * Deliberately harmless: it POSTs nothing, so no patient data leaves the
  * account, and it does not mark the message seen, so the real run will still
  * process it afterwards. It does not read ZAPIER_HOOK_URL, so it works before
  * that property is set.
  */
-function dryRun() {
+function dryRun(messageId) {
   var allowlist = getAllowlist();
-  var candidates = findCandidates(1);
+  var candidate;
 
-  if (candidates.length === 0) {
-    console.log('No candidate messages found. Check the mailbox holds a PDF '
-      + 'from the last 7 days, and that it is not already recorded as seen.');
-    return;
+  if (messageId) {
+    var found = candidateForMessageId(messageId);
+    if (found.problem === 'unreadable') {
+      console.log('Could not read message ' + messageId + '. Check the id is '
+        + 'right and that the message is in this mailbox. diagnose() lists '
+        + 'recent message ids.');
+      return;
+    }
+    if (found.problem === 'no-pdf') {
+      console.log('Message ' + messageId + ' carries no PDF attachment, so '
+        + 'there is nothing to extract.');
+      return;
+    }
+    candidate = found.candidate;
+  } else {
+    var candidates = findCandidates(1);
+    if (candidates.length === 0) {
+      console.log('No candidate messages found. Check the mailbox holds a PDF '
+        + 'from the last 7 days, and that it is not already recorded as seen. '
+        + 'To inspect one that has already been handled, pass its id: '
+        + "dryRun('<message id>').");
+      return;
+    }
+    candidate = candidates[0];
   }
-
-  var candidate = candidates[0];
   console.log('Message  : ' + candidate.messageId);
   console.log('From     : ' + candidate.from);
   console.log('Allowed  : ' + isAllowedSender(candidate.from, allowlist)

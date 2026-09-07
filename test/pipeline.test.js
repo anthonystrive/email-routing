@@ -65,6 +65,7 @@ function fakeMessage(id, options) {
     getId: () => id,
     getFrom: () => (options.from === undefined ? ALLOWED_FROM : options.from),
     getDate: () => new Date('2026-09-01T08:50:00Z'),
+    getThread: () => options.thread || null,
     getAttachments: () => {
       counters.attachmentFetches++;
       return options.attachments || [fakeAttachment()];
@@ -100,11 +101,28 @@ function loadPipeline(options) {
   const threads = options.threads || [];
   const searches = [];
 
+  // dryRun reports through the log, so that is where its behaviour is
+  // observable. Capturing also keeps a pipeline run from writing a booking's
+  // worth of output into the test report.
+  const logs = [];
+  const capture = function () {
+    logs.push(Array.prototype.map.call(arguments, String).join(' '));
+  };
+
   const app = loadAppsScript(FILES, {
+    console: { log: capture, error: capture, warn: capture },
+
     PropertiesService: { getScriptProperties: () => service },
 
     GmailApp: {
       search: (query, start, max) => { searches.push({ query, start, max }); return threads; },
+      // Real GmailApp throws on an id it cannot resolve rather than returning
+      // null, and dryRun has to survive that.
+      getMessageById: (id) => {
+        const found = (options.messagesById || {})[id];
+        if (!found) throw new Error('No item with the given ID could be found');
+        return found;
+      },
       getUserLabelByName: (name) => ({ getName: () => name }),
       createLabel: (name) => { createdLabels.push(name); return { getName: () => name }; },
       sendEmail: () => {},
@@ -139,7 +157,7 @@ function loadPipeline(options) {
     },
   });
 
-  return { app, store, posts, createdLabels, searches, threads };
+  return { app, store, posts, createdLabels, searches, threads, logs };
 }
 
 /** The outcome recorded for a message, read straight out of the raw store. */
@@ -491,4 +509,88 @@ test('sendDailySummary resolves its recipient before deciding to stay silent', (
   // actually needs reporting, which is the one day it must not fail.
   const { app } = loadPipeline({ properties: { SUMMARY_TO: '' } });
   assert.throws(() => app.sendDailySummary(), /SUMMARY_TO/);
+});
+
+// ---------------------------------------------------------------------------
+// dryRun against a nominated message, including one already processed.
+// ---------------------------------------------------------------------------
+
+/** A pipeline whose one message has already been delivered and recorded. */
+function loadProcessed() {
+  const message = fakeMessage('msg-done');
+  const thread = fakeThread('thread-1', [message]);
+  const pipeline = loadPipeline({ threads: [thread], messagesById: { 'msg-done': message } });
+  pipeline.app.markSeen('msg-done', pipeline.app.LABELS.processed);
+  return pipeline;
+}
+
+test('dryRun inspects a message that is already recorded as seen', () => {
+  // findCandidates drops seen messages before dryRun can reach them, so
+  // checking a booking that has already been through used to mean deleting its
+  // seen record — which hands it straight back to the trigger for a duplicate
+  // delivery. Naming the message skips the seen store without touching it.
+  const { app, logs } = loadProcessed();
+
+  app.dryRun('msg-done');
+
+  assert.ok(logs.some((line) => line.includes('msg-done')),
+    'the nominated message should be the one reported on');
+  assert.ok(logs.some((line) => line.includes('patient_first_name')),
+    'the field report should have run');
+});
+
+test('dryRun on a nominated message leaves the seen store untouched', () => {
+  // The whole point: no duplicate-delivery window is opened by inspecting.
+  const { app, store } = loadProcessed();
+  const before = JSON.stringify(store);
+
+  app.dryRun('msg-done');
+
+  assert.strictEqual(JSON.stringify(store), before);
+});
+
+test('dryRun on a nominated message delivers nothing', () => {
+  const { app, posts } = loadProcessed();
+
+  app.dryRun('msg-done');
+
+  assert.strictEqual(posts.length, 0);
+});
+
+test('dryRun explains an unresolvable message id instead of throwing', () => {
+  const { app, logs } = loadProcessed();
+
+  app.dryRun('no-such-id');
+
+  assert.ok(logs.some((line) => line.includes('no-such-id')),
+    'the log should name the id that could not be read');
+  assert.ok(logs.some((line) => /could not/i.test(line)),
+    'the log should say what went wrong');
+});
+
+test('dryRun reports a nominated message that carries no PDF', () => {
+  const message = fakeMessage('msg-nopdf', { attachments: [] });
+  const thread = fakeThread('thread-1', [message]);
+  const { app, logs } = loadPipeline({
+    threads: [thread],
+    messagesById: { 'msg-nopdf': message },
+  });
+
+  app.dryRun('msg-nopdf');
+
+  assert.ok(logs.some((line) => /pdf/i.test(line) && line.includes('msg-nopdf')),
+    'the log should say the named message has no PDF');
+});
+
+test('dryRun with no argument still picks its own candidate', () => {
+  // The setup path must keep working unchanged for someone who has not got a
+  // message id to hand.
+  const message = fakeMessage('msg-new');
+  const thread = fakeThread('thread-1', [message]);
+  const { app, logs, posts } = loadPipeline({ threads: [thread] });
+
+  app.dryRun();
+
+  assert.ok(logs.some((line) => line.includes('msg-new')));
+  assert.strictEqual(posts.length, 0);
 });

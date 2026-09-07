@@ -78,6 +78,46 @@ function findCandidates(maxThreads) {
   return candidates;
 }
 
+/**
+ * One candidate built from a nominated message id, bypassing the seen store.
+ *
+ * findCandidates deliberately drops messages already recorded as seen — that
+ * filter is what stops the trigger reprocessing them. Inspecting one of those
+ * therefore used to mean deleting its seen record, which hands the message
+ * straight back to the trigger for a duplicate delivery. Reading the message
+ * directly leaves the record, and so the delivery guarantee, untouched.
+ *
+ * Returns `{ candidate, problem }`. `problem` distinguishes an id that cannot
+ * be resolved from a message that simply carries no PDF, because those need
+ * different answers from the caller. GmailApp throws rather than returning
+ * null for an unknown id, so that is caught here.
+ */
+function candidateForMessageId(messageId) {
+  var message;
+  try {
+    message = GmailApp.getMessageById(messageId);
+  } catch (err) {
+    return { candidate: null, problem: 'unreadable' };
+  }
+  if (!message) return { candidate: null, problem: 'unreadable' };
+
+  var attachment = firstPdfAttachment(message);
+  if (!attachment) return { candidate: null, problem: 'no-pdf' };
+
+  // Deliberately the same shape findCandidates produces, so a candidate is a
+  // candidate wherever it came from.
+  return {
+    candidate: {
+      thread: message.getThread(),
+      attachment: attachment,
+      from: message.getFrom(),
+      messageId: message.getId(),
+      receivedAt: message.getDate().toISOString()
+    },
+    problem: null
+  };
+}
+
 function applyLabel(thread, labelName) {
   var label = GmailApp.getUserLabelByName(labelName) || GmailApp.createLabel(labelName);
   thread.addLabel(label);
