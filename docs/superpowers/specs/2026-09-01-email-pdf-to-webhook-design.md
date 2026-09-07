@@ -205,12 +205,12 @@ const FIELDS = [
 
   { key: 'account_holder_a_name',    label: 'Account holder A titled full name' },
   { key: 'account_holder_a_mobile',  label: 'Account holder A mobile number' },
-  // One address per line since the September 2026 revision. `listKey` adds an
-  // array of all of them; the field's own key keeps the first, so a consumer
-  // reading it as a string is unaffected.
+  // One address per line since the September 2026 revision. The field's own
+  // key holds the primary address; `extraKey` holds everything after it as one
+  // ', '-separated string, with the primary deliberately not repeated there.
   { key: 'account_holder_a_email',   label: 'Account holder A email',
     pattern: /@/, multiline: true, separator: /[\s,;]+/,
-    listKey: 'account_holder_a_emails' },
+    extraKey: 'account_holder_a_emails' },
 
   // Account holder B is a safeguard: expected to be absent on most bookings.
   // `optional` keeps its absence out of the completeness calculation.
@@ -219,8 +219,8 @@ const FIELDS = [
   { key: 'account_holder_b_mobile',  label: 'Account holder B mobile number',
     optional: true },
   { key: 'account_holder_b_email',   label: 'Account holder B email',
-    optional: true, pattern: /@/, multiline: true,
-    listKey: 'account_holder_b_emails' },
+    optional: true, pattern: /@/, multiline: true, separator: /[\s,;]+/,
+    extraKey: 'account_holder_b_emails' },
 
   // Listed one item per line since the September 2026 revision. `join`
   // reproduces the single-line form the old template produced, so the derived
@@ -314,11 +314,11 @@ steps never break on a missing key.
   "account_holder_a_name": "Dr. Jamie R Sample",
   "account_holder_a_mobile": "+61-400-000-000",
   "account_holder_a_email": "jamie@example.com",
-  "account_holder_a_emails": ["jamie@example.com", "bookings@example.com"],
+  "account_holder_a_emails": "alex@example.com, bookings@example.com",
   "account_holder_b_name": null,
   "account_holder_b_mobile": null,
   "account_holder_b_email": null,
-  "account_holder_b_emails": [],
+  "account_holder_b_emails": null,
   "needs_referral_for": "OPG + Lateral Cephalogram",
   "needs_opg": true,
   "needs_lateral_ceph": true,
@@ -326,18 +326,23 @@ steps never break on a missing key.
     "message_id": "...",
     "from": "sender@example.com",
     "received_at": "2026-09-01T04:31:00.000Z",
-    "extractor_version": "1.2.0",
+    "extractor_version": "1.3.0",
     "complete": true,
     "missing_fields": []
   }
 }
 ```
 
-The payload is flat apart from `_meta`, with one exception: a field whose
-value is genuinely a list arrives as an array of strings, which a Catch Hook
-exposes as line items. Nested objects stay out. The scalar
-`account_holder_a_email` sits beside the array holding the first address, so a
-Zap step written before the template listed several keeps working untouched.
+The payload is **strictly flat** apart from `_meta`: every value is a string,
+a number, a boolean or null, so a Zap step maps each key directly rather than
+reaching into a structure. Where a field holds several values, they arrive as
+one `', '`-separated string.
+
+`account_holder_a_email` holds the **primary** address alone.
+`account_holder_a_emails` holds everything after it, and the primary is
+deliberately not repeated there — carried in both, a Zap mailing each in turn
+writes to the same person twice. It is null, not an empty string, when there
+are no additional addresses, matching every other absent value in the record.
 
 The example above is a **complete** record despite the three null account
 holder B fields — those are optional, so their absence does not count.

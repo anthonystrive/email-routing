@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { loadAppsScript, host } = require('./load');
+const { loadAppsScript } = require('./load');
 const fx = require('./fixtures');
 
 const app = loadAppsScript(['text.gs', 'transforms.gs', 'extract.gs']);
@@ -195,13 +195,12 @@ test('a rejected value is reported as missing, not as complete', () => {
 
 // --- multi-line values: the September 2026 template revision ---
 
-test('every Account holder A email address is collected', () => {
+test('the additional addresses exclude the primary', () => {
+  // The first address is delivered on its own as account_holder_a_email.
+  // Repeating it here made a Zap send to the same person twice.
   const record = app.extractFields(fx.MULTI_EMAIL);
-  assert.deepStrictEqual(host(record.account_holder_a_emails), [
-    'jamie@example.com',
-    'alex@example.com',
-    'bookings@example.com',
-  ]);
+  assert.strictEqual(record.account_holder_a_emails,
+    'alex@example.com, bookings@example.com');
 });
 
 test('the scalar email field keeps the first address', () => {
@@ -211,38 +210,34 @@ test('the scalar email field keeps the first address', () => {
   assert.strictEqual(record.account_holder_a_email, 'jamie@example.com');
 });
 
-test('a single address still yields a one-element list', () => {
+test('a single address leaves the additional field empty', () => {
   const record = app.extractFields(fx.COMPLETE);
-  assert.deepStrictEqual(host(record.account_holder_a_emails), ['jamie@example.com']);
+  assert.strictEqual(record.account_holder_a_email, 'jamie@example.com');
+  assert.strictEqual(record.account_holder_a_emails, null);
 });
 
 test('a non-address line inside the email block is dropped', () => {
   const record = app.extractFields(fx.MULTI_EMAIL_WITH_BOILERPLATE);
-  assert.deepStrictEqual(host(record.account_holder_a_emails), [
-    'jamie@example.com',
-    'bookings@example.com',
-  ]);
   assert.strictEqual(record.account_holder_a_email, 'jamie@example.com');
+  assert.strictEqual(record.account_holder_a_emails, 'bookings@example.com');
 });
 
-test('no address at all yields an empty list and a null value', () => {
+test('no address at all yields nulls in both fields', () => {
   const record = app.extractFields(fx.BLANK_VALUE);
-  assert.deepStrictEqual(host(record.account_holder_a_emails), []);
   assert.strictEqual(record.account_holder_a_email, null);
+  assert.strictEqual(record.account_holder_a_emails, null);
 });
 
 test('account holder B addresses collect the same way', () => {
   const record = app.extractFields(fx.MULTI_EMAIL_ACCOUNT_HOLDER_B);
-  assert.deepStrictEqual(host(record.account_holder_b_emails), [
-    'chris@example.com',
-    'chris.alt@example.com',
-  ]);
   assert.strictEqual(record.account_holder_b_email, 'chris@example.com');
+  assert.strictEqual(record.account_holder_b_emails, 'chris.alt@example.com');
 });
 
-test('an absent account holder B yields an empty list, not null', () => {
+test('an absent account holder B yields nulls, like every other field', () => {
   const record = app.extractFields(fx.COMPLETE);
-  assert.deepStrictEqual(host(record.account_holder_b_emails), []);
+  assert.strictEqual(record.account_holder_b_email, null);
+  assert.strictEqual(record.account_holder_b_emails, null);
 });
 
 test('a referral listed one item per line joins into the single-line form', () => {
@@ -273,10 +268,8 @@ test('an inline label followed by more lines collects the whole list', () => {
     'Account holder A email: jamie@example.com\nalex@example.com'
   );
   const record = app.extractFields(text);
-  assert.deepStrictEqual(host(record.account_holder_a_emails), [
-    'jamie@example.com',
-    'alex@example.com',
-  ]);
+  assert.strictEqual(record.account_holder_a_email, 'jamie@example.com');
+  assert.strictEqual(record.account_holder_a_emails, 'alex@example.com');
 });
 
 test('addresses merged onto one line by the converter are split apart', () => {
@@ -284,20 +277,15 @@ test('addresses merged onto one line by the converter are split apart', () => {
   // single field and the receiving system rejects it as not an email — which
   // is exactly what reached Zapier.
   const record = app.extractFields(fx.MERGED_EMAILS);
-  assert.deepStrictEqual(host(record.account_holder_a_emails), [
-    'jamie@example.com',
-    'alex@example.com',
-  ]);
   assert.strictEqual(record.account_holder_a_email, 'jamie@example.com');
+  assert.strictEqual(record.account_holder_a_emails, 'alex@example.com');
 });
 
 test('merged addresses split on commas and semicolons too', () => {
   const record = app.extractFields(fx.MERGED_EMAILS_PUNCTUATED);
-  assert.deepStrictEqual(host(record.account_holder_a_emails), [
-    'jamie@example.com',
-    'alex@example.com',
-    'bookings@example.com',
-  ]);
+  assert.strictEqual(record.account_holder_a_email, 'jamie@example.com');
+  assert.strictEqual(record.account_holder_a_emails,
+    'alex@example.com, bookings@example.com');
 });
 
 test('splitting is confined to the address fields', () => {
@@ -317,8 +305,6 @@ test('a label merged inline with several addresses is still split', () => {
     'Account holder A email: jamie@example.com alex@example.com'
   );
   const record = app.extractFields(text);
-  assert.deepStrictEqual(host(record.account_holder_a_emails), [
-    'jamie@example.com',
-    'alex@example.com',
-  ]);
+  assert.strictEqual(record.account_holder_a_email, 'jamie@example.com');
+  assert.strictEqual(record.account_holder_a_emails, 'alex@example.com');
 });

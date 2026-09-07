@@ -2,7 +2,7 @@
  * Bumped by hand whenever FIELDS changes, so a downstream consumer can tell
  * which ruleset produced a given record.
  */
-var EXTRACTOR_VERSION = '1.2.0';
+var EXTRACTOR_VERSION = '1.3.0';
 
 /**
  * The only place in this system that knows anything about the source
@@ -39,9 +39,14 @@ var EXTRACTOR_VERSION = '1.2.0';
  * as not an email. Only a field that declares a separator is split: a name and
  * a mobile number both contain spaces and must survive intact.
  *
- * `listKey` names an additional record key holding every collected value as
- * an array; the field's own key keeps the first, so an existing consumer
- * reading `account_holder_a_email` as a string is unaffected. `join` instead
+ * `extraKey` names a second record key holding every value AFTER the first,
+ * joined with ', '. The field's own key keeps the first — the primary address
+ * — so a consumer reading `account_holder_a_email` as a string is unaffected,
+ * and the extras are a single string a Zap step can drop straight into a CC
+ * line. The primary is deliberately absent from it: repeated in both, a Zap
+ * mailing each in turn writes to the same person twice. Null, not an empty
+ * string, when there are no extras, so it reads like every other absent value
+ * in the record. `join` instead
  * folds the collected lines into one string — ' + ' for the referral, which
  * reproduces exactly the single-line form the old template produced, so the
  * derived booleans and any downstream string matching carry on unchanged.
@@ -69,7 +74,7 @@ var FIELDS = [
     pattern: /\d/ },
   { key: 'account_holder_a_email',   label: 'Account holder A email',
     pattern: /@/, multiline: true, separator: /[\s,;]+/,
-    listKey: 'account_holder_a_emails' },
+    extraKey: 'account_holder_a_emails' },
 
   { key: 'account_holder_b_name',    label: 'Account holder B titled full name',
     optional: true },
@@ -77,7 +82,7 @@ var FIELDS = [
     optional: true, pattern: /\d/ },
   { key: 'account_holder_b_email',   label: 'Account holder B email',
     optional: true, pattern: /@/, multiline: true, separator: /[\s,;]+/,
-    listKey: 'account_holder_b_emails' },
+    extraKey: 'account_holder_b_emails' },
 
   { key: 'needs_referral_for',       label: 'Needs referral for',
     multiline: true, join: ' + ' },
@@ -205,9 +210,12 @@ function extractFields(rawText) {
     record[field.key] = values.length === 0 ? null
       : (field.join ? values.join(field.join) : values[0]);
 
-    // Always an array, empty when nothing was found — a downstream consumer
-    // iterating this key should never have to null-check it first.
-    if (field.listKey) record[field.listKey] = values;
+    // Everything after the primary, as one string. Null when there is nothing
+    // beyond the primary, matching how every other absent value is reported.
+    if (field.extraKey) {
+      var extra = values.slice(1);
+      record[field.extraKey] = extra.length > 0 ? extra.join(', ') : null;
+    }
   });
 
   // Derived by substring rather than by matching the three known values

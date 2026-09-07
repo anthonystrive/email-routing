@@ -517,11 +517,15 @@ function dryRun(messageId) {
   // Count only. These are patient contact details, and the rule above is that
   // a dry run never writes one to the execution log — but a count is exactly
   // what tells an operator whether the multi-address block was read at all.
+  // The primary is reported separately, so the total is what an operator
+  // compares against the document: extras, plus the primary if there is one.
   FIELDS.forEach(function (field) {
-    if (!field.listKey) return;
-    var found = record[field.listKey] || [];
-    console.log('  ' + field.listKey + ': ' + found.length
-      + (found.length === 1 ? ' address' : ' addresses'));
+    if (!field.extraKey) return;
+    var extra = record[field.extraKey];
+    var count = extra === null || extra === undefined ? 0 : String(extra).split(', ').length;
+    var total = count + (record[field.key] === null ? 0 : 1);
+    console.log('  ' + field.extraKey + ': ' + count + ' additional'
+      + ' (' + total + (total === 1 ? ' address' : ' addresses') + ' in total)');
   });
   console.log('  needs_opg: ' + record.needs_opg);
   console.log('  needs_lateral_ceph: ' + record.needs_lateral_ceph);

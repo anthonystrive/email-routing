@@ -91,20 +91,13 @@ test('buildPayload reports incompleteness in metadata', () => {
 });
 
 test('the payload is flat apart from _meta', () => {
-  // Arrays of primitives are the one exception, for a field whose value is
-  // genuinely a list — the account holder email addresses. Nested objects
-  // stay banned: a Zap step maps a string or a line item, not a structure.
-  const payload = app.buildPayload(app.extractFields(fx.COMPLETE), CONTEXT);
+  // Strictly flat again. The additional addresses are delivered as one
+  // comma-separated string, so nothing in the payload is a structure and a Zap
+  // step maps every key directly.
+  const payload = app.buildPayload(app.extractFields(fx.MULTI_EMAIL), CONTEXT);
   for (const key of Object.keys(payload)) {
     if (key === '_meta') continue;
     const value = payload[key];
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        assert.ok(item === null || typeof item !== 'object',
-          'nested value inside the array at key: ' + key);
-      }
-      continue;
-    }
     assert.ok(value === null || typeof value !== 'object',
       'nested value at key: ' + key);
   }
@@ -113,9 +106,6 @@ test('the payload is flat apart from _meta', () => {
 test('every email address reaches the payload', () => {
   const payload = app.buildPayload(app.extractFields(fx.MULTI_EMAIL), CONTEXT);
   assert.strictEqual(payload.account_holder_a_email, 'jamie@example.com');
-  assert.deepStrictEqual(host(payload.account_holder_a_emails), [
-    'jamie@example.com',
-    'alex@example.com',
-    'bookings@example.com',
-  ]);
+  assert.strictEqual(payload.account_holder_a_emails,
+    'alex@example.com, bookings@example.com');
 });

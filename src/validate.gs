@@ -38,12 +38,13 @@ function assessExtraction(record) {
  * provenance and extraction quality that make a bad parse debuggable weeks
  * later.
  *
- * Flat apart from `_meta`, with one exception: a field whose value is
- * genuinely a list arrives as an array of strings, which a Catch Hook exposes
- * as line items. Nested objects remain out — a Zap step maps a value, not a
- * structure. `account_holder_a_emails` is the only such key today, and the
- * scalar `account_holder_a_email` still holds the first address beside it, so
- * a step written before the template listed several keeps working.
+ * Strictly flat apart from `_meta`: every value is a string, a number, a
+ * boolean or null, so a Zap step maps each key directly rather than reaching
+ * into a structure. Where a field holds several values —
+ * `account_holder_a_emails` — they arrive as one ', '-separated string.
+ * `account_holder_a_email` holds the primary address on its own, and it is not
+ * repeated among the extras: a Zap mailing each in turn would otherwise write
+ * to the same person twice.
  */
 function buildPayload(record, context) {
   var assessment = assessExtraction(record);
