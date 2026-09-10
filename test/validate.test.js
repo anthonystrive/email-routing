@@ -25,6 +25,20 @@ test('optional fields are excluded from missing_fields', () => {
   assert.ok(!assessment.missing_fields.includes('account_holder_b_name'));
 });
 
+test('a booking with no postal address is still complete', () => {
+  // Old-template documents carry no postal address label at all. Counting it
+  // would report every one of them partial for a field that was never there.
+  const assessment = app.assessExtraction(app.extractFields(fx.NO_POSTAL_ADDRESS));
+  assert.strictEqual(assessment.complete, true);
+  assert.deepStrictEqual(host(assessment.missing_fields), []);
+});
+
+test('a booking needing no referral is still complete', () => {
+  const assessment = app.assessExtraction(app.extractFields(fx.NO_REFERRAL));
+  assert.strictEqual(assessment.complete, true);
+  assert.deepStrictEqual(host(assessment.missing_fields), []);
+});
+
 test('a missing expected field is reported and marks the record incomplete', () => {
   const assessment = app.assessExtraction(app.extractFields(fx.MISSING_LABEL));
   assert.strictEqual(assessment.complete, false);

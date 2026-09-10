@@ -2,19 +2,27 @@
  * Bumped by hand whenever FIELDS changes, so a downstream consumer can tell
  * which ruleset produced a given record.
  */
-var EXTRACTOR_VERSION = '1.3.0';
+var EXTRACTOR_VERSION = '1.4.0';
 
 /**
  * The only place in this system that knows anything about the source
  * document. When the template changes, this table is what changes.
  *
  * `optional: true` means absence is expected and does not count against the
- * record's completeness. Account holder B is a safeguard — most bookings
- * have only one account holder, and without `optional` every single record
- * would report as incomplete.
+ * record's completeness. Three fields carry it, for two different reasons.
+ * Account holder B is a safeguard — most bookings have only one account
+ * holder, and without `optional` every single record would report as
+ * incomplete. The postal address and the referral are optional because the
+ * September 2026 template added the first and made the second conditional:
+ * documents predating it carry no postal address label at all, and a booking
+ * that needs no imaging carries no referral. Counting either would report a
+ * daily partial count for fields that were never in the document, and a
+ * summary reporting an expected number every morning is one nobody reads.
+ * The cost is that a genuinely dropped address or referral no longer raises
+ * a flag — revisit once old-template documents have stopped arriving.
  *
  * `pattern` is a shape check, not a format validator. isLabelLine only knows
- * the 13 labels below, so a label emitted with a blank value followed by
+ * the 14 labels below, so a label emitted with a blank value followed by
  * document boilerplate (a footer, a title, 'Page 1 of 1') would take that
  * line as its value and still report complete — a wrong value is worse than
  * a null, because downstream cannot detect it. A value failing its pattern is
@@ -37,7 +45,10 @@ var EXTRACTOR_VERSION = '1.3.0';
  * that occupy one line each in the PDF can arrive on a single line — and
  * collected whole, both travel in one field, which a receiving system rejects
  * as not an email. Only a field that declares a separator is split: a name and
- * a mobile number both contain spaces and must survive intact.
+ * a mobile number both contain spaces and must survive intact, and a postal
+ * address carries commas that are structure rather than separators — split on
+ * them, '34 Sample Street, Sampleton, VIC 3000' becomes three fragments no
+ * delivery system can use.
  *
  * `extraKey` names a second record key holding every value AFTER the first,
  * joined with ', '. The field's own key keeps the first — the primary address
@@ -76,6 +87,10 @@ var FIELDS = [
     pattern: /@/, multiline: true, separator: /[\s,;]+/,
     extraKey: 'account_holder_a_emails' },
 
+  { key: 'account_holder_a_postal_address',
+    label: 'Account holder A postal address',
+    optional: true, pattern: /\d/ },
+
   { key: 'account_holder_b_name',    label: 'Account holder B titled full name',
     optional: true },
   { key: 'account_holder_b_mobile',  label: 'Account holder B mobile number',
@@ -85,7 +100,7 @@ var FIELDS = [
     extraKey: 'account_holder_b_emails' },
 
   { key: 'needs_referral_for',       label: 'Needs referral for',
-    multiline: true, join: ' + ' },
+    optional: true, multiline: true, join: ' + ' },
 ];
 
 /**

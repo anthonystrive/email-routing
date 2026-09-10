@@ -16,6 +16,8 @@ test('extracts every field from a complete document', () => {
   assert.strictEqual(record.account_holder_a_name, 'Dr. Jamie R Sample');
   assert.strictEqual(record.account_holder_a_mobile, '+61-400-000-000');
   assert.strictEqual(record.account_holder_a_email, 'jamie@example.com');
+  assert.strictEqual(record.account_holder_a_postal_address,
+    '34 Sample Street, Sampleton, VIC 3000');
   assert.strictEqual(record.needs_referral_for, 'OPG + Lateral Cephalogram');
 });
 
@@ -307,4 +309,50 @@ test('a label merged inline with several addresses is still split', () => {
   const record = app.extractFields(text);
   assert.strictEqual(record.account_holder_a_email, 'jamie@example.com');
   assert.strictEqual(record.account_holder_a_emails, 'alex@example.com');
+});
+
+// --- postal address: the September 2026 template's newest field ---
+
+test('the postal address survives its commas intact', () => {
+  // The email fields declare a separator because the converter merges one
+  // address per line onto a single line. An address is the opposite case:
+  // its commas are structure, and splitting on them yields three fragments
+  // no delivery system can use.
+  const record = app.extractFields(fx.COMPLETE);
+  assert.strictEqual(record.account_holder_a_postal_address,
+    '34 Sample Street, Sampleton, VIC 3000');
+});
+
+test('a postal address merged inline with its label is read', () => {
+  const record = app.extractFields(fx.INLINE_MIXED);
+  assert.strictEqual(record.account_holder_a_postal_address,
+    '34 Sample Street, Sampleton, VIC 3000');
+});
+
+test('an absent postal address label yields null', () => {
+  const record = app.extractFields(fx.NO_POSTAL_ADDRESS);
+  assert.strictEqual(record.account_holder_a_postal_address, null);
+  assert.strictEqual(record.account_holder_a_email, 'jamie@example.com');
+  assert.strictEqual(record.needs_referral_for, 'OPG + Lateral Cephalogram');
+});
+
+test('a blank postal address does not swallow the next label', () => {
+  const record = app.extractFields(fx.BLANK_POSTAL_ADDRESS);
+  assert.strictEqual(record.account_holder_a_postal_address, null);
+  assert.strictEqual(record.needs_referral_for, 'OPG + Lateral Cephalogram');
+});
+
+test('boilerplate taken as a postal address is rejected', () => {
+  const record = app.extractFields(fx.BOILERPLATE_POSTAL_ADDRESS);
+  assert.strictEqual(record.account_holder_a_postal_address, null);
+});
+
+test('the postal address shape check stays loose', () => {
+  // Only enough to reject an obvious title. A PO box, a unit number and a
+  // rural address are all plausible and must survive.
+  const odd = fx.COMPLETE
+    .replace('34 Sample Street, Sampleton, VIC 3000', 'PO Box 7, Sampleton VIC 3000');
+  const record = app.extractFields(odd);
+  assert.strictEqual(record.account_holder_a_postal_address,
+    'PO Box 7, Sampleton VIC 3000');
 });

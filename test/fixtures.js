@@ -22,6 +22,8 @@ const COMPLETE = [
   '+61-400-000-000',
   'Account holder A email:',
   'jamie@example.com',
+  'Account holder A postal address:',
+  '34 Sample Street, Sampleton, VIC 3000',
   'Needs referral for:',
   'OPG + Lateral Cephalogram',
 ].join('\n');
@@ -82,6 +84,7 @@ const INLINE_MIXED = [
   'Account holder A mobile number: +61-400-000-000',
   'Account holder A email:',
   'jamie@example.com',
+  'Account holder A postal address: 34 Sample Street, Sampleton, VIC 3000',
   'Needs referral for: OPG + Lateral Cephalogram',
 ].join('\n');
 
@@ -97,6 +100,23 @@ const UNRELATED = [
   'Amount due: $320.00',
   'Thank you for your business.',
 ].join('\n');
+
+// The September 2026 template added a postal address. Both it and the
+// referral are optional, so a document without either is a normal booking,
+// not a partial one — these two fixtures are what prove that.
+const NO_POSTAL_ADDRESS = COMPLETE
+  .replace('Account holder A postal address:\n34 Sample Street, Sampleton, VIC 3000\n', '');
+
+const NO_REFERRAL = COMPLETE
+  .replace('Needs referral for:\nOPG + Lateral Cephalogram', '');
+
+// The label emitted with no value, so the next label follows it directly.
+const BLANK_POSTAL_ADDRESS = COMPLETE
+  .replace('34 Sample Street, Sampleton, VIC 3000\n', '');
+
+// A title, not an address: no street number and no postcode.
+const BOILERPLATE_POSTAL_ADDRESS = COMPLETE
+  .replace('34 Sample Street, Sampleton, VIC 3000', 'New Patient Booking Activation');
 
 function withReferral(value) {
   return COMPLETE.replace('OPG + Lateral Cephalogram', value);
@@ -169,6 +189,10 @@ module.exports = {
   MULTI_EMAIL_ACCOUNT_HOLDER_B,
   MULTI_REFERRAL,
   BLANK_LINE_BEFORE_VALUE,
+  NO_POSTAL_ADDRESS,
+  NO_REFERRAL,
+  BLANK_POSTAL_ADDRESS,
+  BOILERPLATE_POSTAL_ADDRESS,
   UNRELATED,
   withReferral,
 };

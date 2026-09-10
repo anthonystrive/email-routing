@@ -212,6 +212,14 @@ const FIELDS = [
     pattern: /@/, multiline: true, separator: /[\s,;]+/,
     extraKey: 'account_holder_a_emails' },
 
+  // Added by the September 2026 revision, so documents predating it carry no
+  // such label — hence `optional`. Deliberately declares no `separator`: an
+  // address's commas are structure, and splitting on them would yield three
+  // fragments no delivery system can use.
+  { key: 'account_holder_a_postal_address',
+    label: 'Account holder A postal address',
+    optional: true, pattern: /\d/ },
+
   // Account holder B is a safeguard: expected to be absent on most bookings.
   // `optional` keeps its absence out of the completeness calculation.
   { key: 'account_holder_b_name',    label: 'Account holder B titled full name',
@@ -224,9 +232,10 @@ const FIELDS = [
 
   // Listed one item per line since the September 2026 revision. `join`
   // reproduces the single-line form the old template produced, so the derived
-  // booleans and any downstream string matching are unaffected.
+  // booleans and any downstream string matching are unaffected. `optional`
+  // because a booking that needs no imaging carries no referral at all.
   { key: 'needs_referral_for',       label: 'Needs referral for',
-    multiline: true, join: ' + ' },
+    optional: true, multiline: true, join: ' + ' },
 ];
 ```
 
@@ -315,6 +324,7 @@ steps never break on a missing key.
   "account_holder_a_mobile": "+61-400-000-000",
   "account_holder_a_email": "jamie@example.com",
   "account_holder_a_emails": "alex@example.com, bookings@example.com",
+  "account_holder_a_postal_address": "34 Sample Street, Sampleton, VIC 3000",
   "account_holder_b_name": null,
   "account_holder_b_mobile": null,
   "account_holder_b_email": null,
@@ -326,7 +336,7 @@ steps never break on a missing key.
     "message_id": "...",
     "from": "sender@example.com",
     "received_at": "2026-09-01T04:31:00.000Z",
-    "extractor_version": "1.3.0",
+    "extractor_version": "1.4.0",
     "complete": true,
     "missing_fields": []
   }
@@ -343,6 +353,15 @@ one `', '`-separated string.
 deliberately not repeated there — carried in both, a Zap mailing each in turn
 writes to the same person twice. It is null, not an empty string, when there
 are no additional addresses, matching every other absent value in the record.
+
+`account_holder_a_postal_address` and `needs_referral_for` are `optional`, so
+a document lacking either is still reported `complete: true` and labelled
+`pdf-processed`. Old-template documents carry no postal address label at all,
+and a booking needing no imaging carries no referral — counting either would
+put a non-zero partial count in the daily summary every morning for an
+expected reason, which is the fastest way to train a reader to ignore it. The
+trade-off is that a genuinely dropped address or referral raises no flag;
+revisit once old-template documents have stopped arriving.
 
 The example above is a **complete** record despite the three null account
 holder B fields — those are optional, so their absence does not count.
