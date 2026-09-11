@@ -233,9 +233,11 @@ const FIELDS = [
   // Listed one item per line since the September 2026 revision. `join`
   // reproduces the single-line form the old template produced, so the derived
   // booleans and any downstream string matching are unaffected. `optional`
-  // because a booking that needs no imaging carries no referral at all.
+  // because a booking that needs no imaging carries no referral at all. The
+  // transform appends the MBS item number to each recognised item.
   { key: 'needs_referral_for',       label: 'Needs referral for',
-    optional: true, multiline: true, join: ' + ' },
+    optional: true, multiline: true, join: ' + ',
+    transform: function (v) { return appendReferralItemNumbers(v); } },
 ];
 ```
 
@@ -269,9 +271,24 @@ sample containing a B record has been seen. If the wording differs, only
 these three `label` strings change, and until then B records simply extract
 as null rather than breaking anything.
 
+**Item numbers.** Each recognised referral item carries its MBS item number,
+appended by `appendReferralItemNumbers`: `OPG` is delivered as
+`OPG (Item 57966)`. `REFERRAL_ITEMS` in `transforms.gs` is the table, so a new
+referral type is one line and nothing else; an item absent from it passes
+through unchanged rather than being dropped.
+
+The substitution happens WITHIN the value rather than matching it whole,
+because both template layouts reach the transform — the September 2026
+template lists one item per line, documents predating it emit a single merged
+`OPG + Lateral Cephalogram`, and `extractFields` applies a transform per
+collected line before joining. Matching the whole value would number the
+first layout and silently miss the second, so the same booking would deliver
+differently depending on which template produced it. A negative lookahead
+makes the substitution idempotent.
+
 **Derived fields.** `needs_referral_for` is the referral items joined with
 ` + `, which reproduces the single-line form the template used to emit
-directly: `OPG`, `Lateral Cephalogram`, or `OPG + Lateral Cephalogram`.
+directly: `OPG (Item 57966)`, `Lateral Cephalogram`, or the two joined.
 Rather than
 force downstream consumers to string-match a compound value, extraction
 derives two booleans by substring:
@@ -329,14 +346,14 @@ steps never break on a missing key.
   "account_holder_b_mobile": null,
   "account_holder_b_email": null,
   "account_holder_b_emails": null,
-  "needs_referral_for": "OPG + Lateral Cephalogram",
+  "needs_referral_for": "OPG (Item 57966) + Lateral Cephalogram",
   "needs_opg": true,
   "needs_lateral_ceph": true,
   "_meta": {
     "message_id": "...",
     "from": "sender@example.com",
     "received_at": "2026-09-01T04:31:00.000Z",
-    "extractor_version": "1.4.0",
+    "extractor_version": "1.5.0",
     "complete": true,
     "missing_fields": []
   }

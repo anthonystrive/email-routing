@@ -55,3 +55,40 @@ test('rejects malformed and empty time input', () => {
   assert.strictEqual(app.normaliseTime(''), null);
   assert.strictEqual(app.normaliseTime(null), null);
 });
+
+// --- referral item numbers ---
+
+test('appends the MBS item number to OPG', () => {
+  assert.strictEqual(app.appendReferralItemNumbers('OPG'), 'OPG (Item 57966)');
+});
+
+test('appends within a merged line, not only to a whole value', () => {
+  // The old template emitted every item on one line. Both layouts still
+  // reach this transform, and both must come out the same.
+  assert.strictEqual(
+    app.appendReferralItemNumbers('OPG + Lateral Cephalogram'),
+    'OPG (Item 57966) + Lateral Cephalogram');
+});
+
+test('leaves an unmapped referral item untouched', () => {
+  assert.strictEqual(app.appendReferralItemNumbers('Lateral Cephalogram'),
+    'Lateral Cephalogram');
+  assert.strictEqual(app.appendReferralItemNumbers('Bitewing X-ray'),
+    'Bitewing X-ray');
+});
+
+test('does not append twice to a value that already carries the number', () => {
+  // Guards against a document that already names the item, and against the
+  // transform running over its own output.
+  assert.strictEqual(app.appendReferralItemNumbers('OPG (Item 57966)'),
+    'OPG (Item 57966)');
+});
+
+test('matches OPG on a word boundary only', () => {
+  assert.strictEqual(app.appendReferralItemNumbers('OPGX'), 'OPGX');
+});
+
+test('passes empty and absent values through as every transform does', () => {
+  assert.strictEqual(app.appendReferralItemNumbers(null), null);
+  assert.strictEqual(app.appendReferralItemNumbers(undefined), null);
+});

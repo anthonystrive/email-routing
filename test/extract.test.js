@@ -18,7 +18,7 @@ test('extracts every field from a complete document', () => {
   assert.strictEqual(record.account_holder_a_email, 'jamie@example.com');
   assert.strictEqual(record.account_holder_a_postal_address,
     '34 Sample Street, Sampleton, VIC 3000');
-  assert.strictEqual(record.needs_referral_for, 'OPG + Lateral Cephalogram');
+  assert.strictEqual(record.needs_referral_for, 'OPG (Item 57966) + Lateral Cephalogram');
 });
 
 test('extracts correctly from raw converter encoding', () => {
@@ -105,7 +105,7 @@ test('extracts an inline label/value pair on one line', () => {
   assert.strictEqual(record.patient_surname, 'Sample');
   assert.strictEqual(record.patient_appointment_date, '2026-09-02');
   assert.strictEqual(record.account_holder_a_mobile, '+61-400-000-000');
-  assert.strictEqual(record.needs_referral_for, 'OPG + Lateral Cephalogram');
+  assert.strictEqual(record.needs_referral_for, 'OPG (Item 57966) + Lateral Cephalogram');
 });
 
 test('handles inline and next-line pairs in the same document', () => {
@@ -125,7 +125,7 @@ test('an inline transform still runs on the inline value', () => {
 test('a blank value does not swallow an inline label that follows', () => {
   const record = app.extractFields(fx.BLANK_BEFORE_INLINE);
   assert.strictEqual(record.account_holder_a_email, null);
-  assert.strictEqual(record.needs_referral_for, 'OPG');
+  assert.strictEqual(record.needs_referral_for, 'OPG (Item 57966)');
 });
 
 test('a label never matches a longer label that starts with it', () => {
@@ -143,7 +143,7 @@ test('a label with no following line yields null', () => {
 test('a label with a blank value does not consume the next label', () => {
   const record = app.extractFields(fx.BLANK_VALUE);
   assert.strictEqual(record.account_holder_a_email, null);
-  assert.strictEqual(record.needs_referral_for, 'OPG + Lateral Cephalogram');
+  assert.strictEqual(record.needs_referral_for, 'OPG (Item 57966) + Lateral Cephalogram');
 });
 
 test('boilerplate taken as an email value is rejected, not delivered', () => {
@@ -174,7 +174,7 @@ test('a rejected value does not disturb the rest of the record', () => {
   const record = app.extractFields(fx.BOILERPLATE_VALUE);
   assert.strictEqual(record.patient_first_name, 'Alex');
   assert.strictEqual(record.account_holder_a_mobile, '+61-400-000-000');
-  assert.strictEqual(record.needs_referral_for, 'OPG + Lateral Cephalogram');
+  assert.strictEqual(record.needs_referral_for, 'OPG (Item 57966) + Lateral Cephalogram');
 });
 
 test('the shape check stays loose enough for unusual real values', () => {
@@ -246,7 +246,7 @@ test('a referral listed one item per line joins into the single-line form', () =
   // The old template emitted 'OPG + Lateral Cephalogram' on one line. The
   // new one lists each item separately; downstream must not be able to tell.
   const record = app.extractFields(fx.MULTI_REFERRAL);
-  assert.strictEqual(record.needs_referral_for, 'OPG + Lateral Cephalogram');
+  assert.strictEqual(record.needs_referral_for, 'OPG (Item 57966) + Lateral Cephalogram');
 });
 
 test('booleans are derived from a referral spanning several lines', () => {
@@ -257,7 +257,7 @@ test('booleans are derived from a referral spanning several lines', () => {
 
 test('a blank line between a label and its value does not break extraction', () => {
   const record = app.extractFields(fx.BLANK_LINE_BEFORE_VALUE);
-  assert.strictEqual(record.needs_referral_for, 'OPG + Lateral Cephalogram');
+  assert.strictEqual(record.needs_referral_for, 'OPG (Item 57966) + Lateral Cephalogram');
   assert.strictEqual(record.account_holder_a_email, 'jamie@example.com');
 });
 
@@ -296,7 +296,7 @@ test('splitting is confined to the address fields', () => {
   const record = app.extractFields(fx.MERGED_EMAILS);
   assert.strictEqual(record.account_holder_a_name, 'Dr. Jamie R Sample');
   assert.strictEqual(record.account_holder_a_mobile, '+61-400-000-000');
-  assert.strictEqual(record.needs_referral_for, 'OPG + Lateral Cephalogram');
+  assert.strictEqual(record.needs_referral_for, 'OPG (Item 57966) + Lateral Cephalogram');
 });
 
 test('a label merged inline with several addresses is still split', () => {
@@ -333,13 +333,13 @@ test('an absent postal address label yields null', () => {
   const record = app.extractFields(fx.NO_POSTAL_ADDRESS);
   assert.strictEqual(record.account_holder_a_postal_address, null);
   assert.strictEqual(record.account_holder_a_email, 'jamie@example.com');
-  assert.strictEqual(record.needs_referral_for, 'OPG + Lateral Cephalogram');
+  assert.strictEqual(record.needs_referral_for, 'OPG (Item 57966) + Lateral Cephalogram');
 });
 
 test('a blank postal address does not swallow the next label', () => {
   const record = app.extractFields(fx.BLANK_POSTAL_ADDRESS);
   assert.strictEqual(record.account_holder_a_postal_address, null);
-  assert.strictEqual(record.needs_referral_for, 'OPG + Lateral Cephalogram');
+  assert.strictEqual(record.needs_referral_for, 'OPG (Item 57966) + Lateral Cephalogram');
 });
 
 test('boilerplate taken as a postal address is rejected', () => {
@@ -355,4 +355,32 @@ test('the postal address shape check stays loose', () => {
   const record = app.extractFields(odd);
   assert.strictEqual(record.account_holder_a_postal_address,
     'PO Box 7, Sampleton VIC 3000');
+});
+
+// --- referral item numbers, end to end ---
+
+test('the delivered referral carries the OPG item number', () => {
+  const record = app.extractFields(fx.COMPLETE);
+  assert.strictEqual(record.needs_referral_for,
+    'OPG (Item 57966) + Lateral Cephalogram');
+});
+
+test('both template layouts yield an identical referral string', () => {
+  // MULTI_REFERRAL lists one item per line; COMPLETE merges them onto one.
+  // The transform runs per line, so the two must not diverge.
+  assert.strictEqual(
+    app.extractFields(fx.MULTI_REFERRAL).needs_referral_for,
+    app.extractFields(fx.COMPLETE).needs_referral_for);
+});
+
+test('the derived booleans survive the appended item number', () => {
+  const record = app.extractFields(fx.COMPLETE);
+  assert.strictEqual(record.needs_opg, true);
+  assert.strictEqual(record.needs_lateral_ceph, true);
+});
+
+test('a referral without OPG is delivered unchanged', () => {
+  const record = app.extractFields(fx.withReferral('Lateral Cephalogram'));
+  assert.strictEqual(record.needs_referral_for, 'Lateral Cephalogram');
+  assert.strictEqual(record.needs_opg, false);
 });

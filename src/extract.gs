@@ -2,7 +2,7 @@
  * Bumped by hand whenever FIELDS changes, so a downstream consumer can tell
  * which ruleset produced a given record.
  */
-var EXTRACTOR_VERSION = '1.4.0';
+var EXTRACTOR_VERSION = '1.5.0';
 
 /**
  * The only place in this system that knows anything about the source
@@ -58,9 +58,11 @@ var EXTRACTOR_VERSION = '1.4.0';
  * mailing each in turn writes to the same person twice. Null, not an empty
  * string, when there are no extras, so it reads like every other absent value
  * in the record. `join` instead
- * folds the collected lines into one string — ' + ' for the referral, which
- * reproduces exactly the single-line form the old template produced, so the
- * derived booleans and any downstream string matching carry on unchanged.
+ * folds the collected lines into one string — ' + ' for the referral, so the
+ * one-item-per-line layout and the old merged single line come out the same.
+ * That equivalence is why the referral's transform substitutes within a line
+ * rather than matching the whole value: applied per line and only then
+ * joined, both layouts must still agree once item numbers are appended.
  *
  * Every `transform` is wrapped in a function literal rather than named
  * directly. A bare reference is dereferenced when this array is BUILT, which
@@ -100,7 +102,8 @@ var FIELDS = [
     extraKey: 'account_holder_b_emails' },
 
   { key: 'needs_referral_for',       label: 'Needs referral for',
-    optional: true, multiline: true, join: ' + ' },
+    optional: true, multiline: true, join: ' + ',
+    transform: function (v) { return appendReferralItemNumbers(v); } },
 ];
 
 /**
@@ -235,7 +238,9 @@ function extractFields(rawText) {
 
   // Derived by substring rather than by matching the three known values
   // exactly, so a fourth combination appearing later still yields correct
-  // booleans. The raw string always passes through unchanged alongside them.
+  // booleans — and so the MBS item number the transform appends cannot break
+  // them, which an exact match would. The raw string travels alongside them,
+  // item numbers and all.
   const referral = record.needs_referral_for;
   record.needs_opg = referral ? /OPG/i.test(referral) : false;
   record.needs_lateral_ceph = referral ? /lateral\s+cephalogram/i.test(referral) : false;

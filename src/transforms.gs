@@ -43,3 +43,44 @@ function normaliseTime(value) {
 
   return hour + ':' + String(minute).padStart(2, '0') + ' ' + match[3].toLowerCase() + 'm';
 }
+
+/**
+ * MBS item numbers for referral items, in the order they are applied.
+ *
+ * A table rather than a rule per item so a new referral type is one line
+ * here and nothing else. Anything absent from it passes through unchanged,
+ * which is what keeps an unrecognised referral readable rather than dropped.
+ *
+ * The negative lookahead makes the substitution idempotent: a document that
+ * already names the item number, or a value this transform has already seen,
+ * does not come out as 'OPG (Item 57966) (Item 57966)'.
+ */
+var REFERRAL_ITEMS = [
+  { pattern: /\bOPG\b(?!\s*\(Item)/gi, number: '57966' }
+];
+
+/**
+ * Referral text with each known item's MBS number appended to it.
+ *
+ * Substitutes WITHIN the value rather than matching it whole, because both
+ * template layouts reach this transform: the September 2026 template lists
+ * one item per line, so this sees 'OPG' alone, while documents predating it
+ * emit a single merged 'OPG + Lateral Cephalogram'. Matching the whole value
+ * would number the first and silently miss the second — and since extract.gs
+ * applies a transform per collected line and only then joins them, both
+ * layouts must produce byte-identical output or the same booking would
+ * deliver differently depending on which template produced it.
+ *
+ * Returns null for an absent value, as every transform here does.
+ */
+function appendReferralItemNumbers(value) {
+  if (value === null || value === undefined) return null;
+
+  var text = String(value);
+  REFERRAL_ITEMS.forEach(function (item) {
+    text = text.replace(item.pattern, function (match) {
+      return match + ' (Item ' + item.number + ')';
+    });
+  });
+  return text;
+}
