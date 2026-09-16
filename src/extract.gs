@@ -82,7 +82,8 @@ var FIELDS = [
   { key: 'patient_appointment_time', label: 'Patient appointment time',
     transform: function (v) { return normaliseTime(v); } },
 
-  { key: 'account_holder_a_name',    label: 'Account holder A titled full name' },
+  { key: 'account_holder_a_name',    label: 'Account holder A titled full name',
+    transform: function (v) { return stripNameTitle(v); } },
   { key: 'account_holder_a_mobile',  label: 'Account holder A mobile number',
     pattern: /\d/ },
   { key: 'account_holder_a_email',   label: 'Account holder A email',
@@ -94,7 +95,7 @@ var FIELDS = [
     optional: true, pattern: /\d/ },
 
   { key: 'account_holder_b_name',    label: 'Account holder B titled full name',
-    optional: true },
+    optional: true, transform: function (v) { return stripNameTitle(v); } },
   { key: 'account_holder_b_mobile',  label: 'Account holder B mobile number',
     optional: true, pattern: /\d/ },
   { key: 'account_holder_b_email',   label: 'Account holder B email',

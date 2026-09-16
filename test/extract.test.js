@@ -13,7 +13,7 @@ test('extracts every field from a complete document', () => {
   assert.strictEqual(record.patient_date_of_birth, '1988-04-05');
   assert.strictEqual(record.patient_appointment_date, '2026-09-02');
   assert.strictEqual(record.patient_appointment_time, '8:50 am');
-  assert.strictEqual(record.account_holder_a_name, 'Dr. Jamie R Sample');
+  assert.strictEqual(record.account_holder_a_name, 'Jamie R Sample');
   assert.strictEqual(record.account_holder_a_mobile, '+61-400-000-000');
   assert.strictEqual(record.account_holder_a_email, 'jamie@example.com');
   assert.strictEqual(record.account_holder_a_postal_address,
@@ -36,10 +36,10 @@ test('account holder B is null when absent', () => {
 
 test('account holder B is extracted when present', () => {
   const record = app.extractFields(fx.WITH_ACCOUNT_HOLDER_B);
-  assert.strictEqual(record.account_holder_b_name, 'Mr. Chris Sample');
+  assert.strictEqual(record.account_holder_b_name, 'Chris Sample');
   assert.strictEqual(record.account_holder_b_mobile, '+61-400-000-001');
   assert.strictEqual(record.account_holder_b_email, 'chris@example.com');
-  assert.strictEqual(record.account_holder_a_name, 'Dr. Jamie R Sample');
+  assert.strictEqual(record.account_holder_a_name, 'Jamie R Sample');
 });
 
 test('a missing label yields null without disturbing other fields', () => {
@@ -114,7 +114,7 @@ test('handles inline and next-line pairs in the same document', () => {
   assert.strictEqual(record.patient_gender, 'Male');           // next-line
   assert.strictEqual(record.patient_appointment_time, '8:50 am'); // next-line
   assert.strictEqual(record.account_holder_a_email, 'jamie@example.com');
-  assert.strictEqual(record.account_holder_a_name, 'Dr. Jamie R Sample'); // inline
+  assert.strictEqual(record.account_holder_a_name, 'Jamie R Sample'); // inline
 });
 
 test('an inline transform still runs on the inline value', () => {
@@ -294,7 +294,7 @@ test('splitting is confined to the address fields', () => {
   // A name and a mobile number both contain spaces and must survive whole.
   // Only a field that declares a separator is split.
   const record = app.extractFields(fx.MERGED_EMAILS);
-  assert.strictEqual(record.account_holder_a_name, 'Dr. Jamie R Sample');
+  assert.strictEqual(record.account_holder_a_name, 'Jamie R Sample');
   assert.strictEqual(record.account_holder_a_mobile, '+61-400-000-000');
   assert.strictEqual(record.needs_referral_for, 'OPG (Item 57966) + Lateral Cephalogram');
 });

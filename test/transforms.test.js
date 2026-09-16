@@ -92,3 +92,32 @@ test('passes empty and absent values through as every transform does', () => {
   assert.strictEqual(app.appendReferralItemNumbers(null), null);
   assert.strictEqual(app.appendReferralItemNumbers(undefined), null);
 });
+
+test('strips a title from the front of a name', () => {
+  assert.strictEqual(app.stripNameTitle('Miss Jane Doe'), 'Jane Doe');
+  assert.strictEqual(app.stripNameTitle('Dr. Jane Doe'), 'Jane Doe');
+  assert.strictEqual(app.stripNameTitle('Dr Jane Doe'), 'Jane Doe');
+  assert.strictEqual(app.stripNameTitle('Mrs Jane Doe'), 'Jane Doe');
+  assert.strictEqual(app.stripNameTitle('Ms. Jane Doe'), 'Jane Doe');
+  assert.strictEqual(app.stripNameTitle('Mr. Chris Sample'), 'Chris Sample');
+});
+
+test('title stripping ignores case and stacked titles', () => {
+  assert.strictEqual(app.stripNameTitle('MRS JANE DOE'), 'JANE DOE');
+  assert.strictEqual(app.stripNameTitle('Prof. Dr. Jane Doe'), 'Jane Doe');
+});
+
+test('leaves a name that merely starts with title letters alone', () => {
+  assert.strictEqual(app.stripNameTitle('Drew Sample'), 'Drew Sample');
+  assert.strictEqual(app.stripNameTitle('Mrsa Sample'), 'Mrsa Sample');
+  assert.strictEqual(app.stripNameTitle('Jane Doe'), 'Jane Doe');
+});
+
+test('keeps a value that is nothing but a title', () => {
+  assert.strictEqual(app.stripNameTitle('Dr.'), 'Dr.');
+});
+
+test('title stripping passes absent values through as null', () => {
+  assert.strictEqual(app.stripNameTitle(null), null);
+  assert.strictEqual(app.stripNameTitle(undefined), null);
+});

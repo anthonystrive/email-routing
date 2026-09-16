@@ -84,3 +84,31 @@ function appendReferralItemNumbers(value) {
   });
   return text;
 }
+
+/**
+ * Honorifics the booking form puts in front of an account holder's name.
+ *
+ * Matched as whole words followed by whitespace, so 'Drew' or 'Mrsa' is
+ * never mistaken for a title. The trailing full stop is optional because
+ * the form writes both 'Dr' and 'Dr.'.
+ */
+var NAME_TITLE = /^(?:mr|mrs|ms|miss|mx|dr|prof|professor|rev|sir|dame)\.?\s+/i;
+
+/**
+ * A full name with any leading title removed: 'Miss Jane Doe' → 'Jane Doe'.
+ *
+ * Loops so stacked titles ('Prof. Dr. Jane Doe') all go. A value that is
+ * nothing but a title comes back unchanged rather than as an empty string,
+ * which extract.gs would otherwise report as the field not being found.
+ *
+ * Returns null for an absent value, as every transform here does.
+ */
+function stripNameTitle(value) {
+  if (value === null || value === undefined) return null;
+
+  var name = String(value).trim();
+  while (NAME_TITLE.test(name)) {
+    name = name.replace(NAME_TITLE, '');
+  }
+  return name;
+}
